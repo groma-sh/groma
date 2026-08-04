@@ -1,0 +1,60 @@
+# The v0.2 controller-manager Deployment. Apply deploy/rbac.yaml first (it
+# creates the groma-system Namespace and the groma ServiceAccount + RBAC this
+# Deployment runs as), then config/crd/bases/*.yaml, then this file.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: groma-manager
+  namespace: groma-system
+  labels:
+    app.kubernetes.io/name: groma-manager
+    app.kubernetes.io/managed-by: groma
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: groma-manager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: groma-manager
+    spec:
+      serviceAccountName: groma
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: groma-manager:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --evidence-namespace=groma-system
+            - --health-probe-bind-address=:8081
+          ports:
+            - name: healthz
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: healthz
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

@@ -1,0 +1,58 @@
+# CRD-based equivalent of examples/intent.yaml, for the v0.2 controller
+# instead of the one-shot CLI. Apply after deploy/rbac.yaml,
+# config/crd/bases/*.yaml, and deploy/manager.yaml:
+#   kubectl apply -f examples/schedule.yaml
+#   kubectl get conformanceschedule,conformancerun
+apiVersion: groma.dev/v1alpha1
+kind: SegmentationIntent
+metadata:
+  name: pci-cde
+spec:
+  zones:
+    - name: cde
+      namespace: cde
+      podSelector:
+        matchLabels:
+          app: payments-db
+    - name: frontend
+      namespace: frontend
+      podSelector:
+        matchLabels:
+          app: web
+  assertions:
+    - from: frontend
+      to: cde
+      type: MustNotReach
+      ports:
+        - protocol: TCP
+          port: 5432
+    - from: cde
+      to: cde
+      type: MustReach
+      ports:
+        - protocol: TCP
+          port: 5432
+  compliance:
+    framework: PCI-DSS-4.0
+    controls:
+      - "11.4.5"
+      - "1.3.4"
+---
+apiVersion: groma.dev/v1alpha1
+kind: ConformanceSchedule
+metadata:
+  name: pci-cde-hourly
+spec:
+  intentRef:
+    name: pci-cde
+  schedule: "0 * * * *" # hourly; PCI service-provider minimum is every 6 months
+  mode: ["active"]
+  probeStrategy:
+    maxConcurrentProbes: 8
+  evidence:
+    retain: "30d"
+    # Signed in-toto attestation (v0.4). Off by default; when on, each run stores
+    # attestation.json (a DSSE envelope) next to statement.json and report.html.
+    # sign: true
+    # keyless: true                              # Fulcio + Rekor over the manager's workload OIDC identity
+    # keyRef: "k8s://groma-system/cosign-key"    # or a KMS URI (awskms://, gcpkms://); used when keyless is false

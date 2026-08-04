@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-label="Groma - prove your Kubernetes network segmentation holds">
+  <title>Groma</title>
+  <defs>
+    <style>
+      .wm { font-family: 'Inter','Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="300" rx="26" fill="#0B1120"/>
+
+  <!-- logo mark: same groma mark as docs/logo.svg (without the tile) -->
+  <g transform="translate(78,74) scale(1.18)" stroke-linecap="round">
+    <line x1="64" y1="28" x2="64" y2="91" stroke="#8890C8" stroke-width="8"/>
+    <path d="M60 89 L68 89 L64 106 Z" fill="#8890C8"/>
+    <line x1="28" y1="44" x2="100" y2="44" stroke="#8890C8" stroke-width="8"/>
+    <line x1="28" y1="44" x2="28" y2="70" stroke="#8890C8" stroke-width="4"/>
+    <line x1="100" y1="44" x2="100" y2="70" stroke="#8890C8" stroke-width="4"/>
+    <path d="M28 71 L36 81 L28 91 L20 81 Z" fill="#34D399"/>
+    <path d="M100 71 L108 81 L100 91 L92 81 Z" fill="#34D399"/>
+  </g>
+
+  <!-- wordmark + tagline -->
+  <text class="wm" x="300" y="150" font-size="104" font-weight="800" letter-spacing="-2" fill="#F4F6FB">Groma</text>
+  <text class="wm" x="304" y="200" font-size="30" font-weight="500" fill="#B7BDDE">Prove your Kubernetes network segmentation holds</text>
+  <text class="wm" x="304" y="240" font-size="22" font-weight="600" fill="#34D399">CNI-neutral&#160;&#160;/&#160;&#160;active runtime probing&#160;&#160;/&#160;&#160;audit-ready evidence</text>
+</svg>

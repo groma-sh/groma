@@ -1,0 +1,31 @@
+apiVersion: groma.dev/v1alpha1
+kind: SegmentationIntent
+metadata:
+  name: pci-cde
+zones:
+  - name: cde
+    namespace: cde
+    podLabels:
+      app: payments-db
+  - name: frontend
+    namespace: frontend
+    podLabels:
+      app: web
+assertions:
+  - from: frontend
+    to: cde
+    type: MustNotReach
+    ports:
+      - protocol: TCP
+        port: 5432
+  - from: cde
+    to: cde
+    type: MustReach
+    ports:
+      - protocol: TCP
+        port: 5432
+compliance:
+  framework: PCI-DSS-4.0
+  controls:
+    - "11.4.5"
+    - "1.3.4"

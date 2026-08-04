@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Groma Segmentation Conformance - pci-cde-isolation</title>
+<style>
+  :root { --pass:#1a7f37; --fail:#cf222e; --warn:#9a6700; --muted:#57606a; --line:#d0d7de; --bg:#ffffff; --ink:#1f2328; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); margin: 0; padding: 2rem; line-height: 1.5; }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.05rem; margin: 2rem 0 .5rem; border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
+  .sub { color: var(--muted); margin: 0 0 1.25rem; }
+  .badge { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .78rem; font-weight: 600; color: #fff; vertical-align: middle; }
+  .badge.pass { background: var(--pass); } .badge.fail { background: var(--fail); }
+  .badge.warn { background: var(--warn); } .badge.muted { background: var(--muted); }
+  .meta { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; font-size: .9rem; }
+  .meta dt { color: var(--muted); } .meta dd { margin: 0; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; word-break: break-all; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; margin-top: .5rem; }
+  th, td { border: 1px solid var(--line); padding: .4rem .5rem; text-align: left; vertical-align: top; }
+  th { background: #f6f8fa; }
+  .enf { padding: .6rem .8rem; border-radius: 6px; border: 1px solid var(--line); margin: .5rem 0 0; }
+  .enf.gap { border-color: var(--fail); background: #fff5f5; }
+  .enf.ok { border-color: var(--pass); background: #f2fbf4; }
+  ul.controls { margin: .2rem 0; padding-left: 1.1rem; } ul.controls li { margin-bottom: .15rem; }
+  .rationale { color: var(--muted); }
+  footer { color: var(--muted); font-size: .78rem; margin-top: 2rem; border-top: 1px solid var(--line); padding-top: .6rem; }
+  @media print { body { padding: 0; } h2 { page-break-after: avoid; } tr { page-break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Segmentation Conformance <span class="badge fail">FAIL</span></h1>
+  <p class="sub">Intent <strong>pci-cde-isolation</strong> &middot; PCI-DSS-4.0 &middot; verified by Groma v0.4.0-test</p>
+
+  <dl class="meta">
+    <dt>Modes</dt><dd>active&#43;static</dd>
+    <dt>Started</dt><dd>2026-08-03 03:00:00 UTC</dd>
+    <dt>Finished</dt><dd>2026-08-03 03:00:12 UTC (12s)</dd>
+    <dt>Cluster</dt><dd>kind-groma</dd>
+    <dt>CNI</dt><dd>kindnet/unknown</dd>
+    <dt>Subject</dt><dd>SegmentationIntent/pci-cde-isolation</dd>
+    <dt>Digest</dt><dd class="mono">sha256:d753a102ab8dc6996d7c465ae1513f1f3d19f7127770f39a7b0149db7896e915</dd>
+    <dt>Controls evidenced</dt><dd>1.3.1, 11.4.5</dd>
+  </dl>
+
+  
+  <div class="enf gap">
+    Runtime enforcement matches policy configuration: <strong>NO</strong>
+    <br>runtime allows one or more paths your policy config denies (enforcement gap)
+  </div>
+  
+
+  <h2>Assertions</h2>
+  <table>
+    <thead><tr><th>Path</th><th>Assertion</th><th>Port</th><th>Config</th><th>Runtime</th><th>Reconcile</th><th>Result</th></tr></thead>
+    <tbody>
+    
+      <tr>
+        <td>out-of-scope &rarr; cde</td>
+        <td>MustNotReach</td>
+        <td>TCP/5432</td>
+        <td>DENIED</td>
+        <td>REACHABLE</td>
+        <td><span class="badge fail">ENFORCEMENT-GAP</span></td>
+        <td><span class="badge fail">FAIL</span></td>
+      </tr>
+      <tr><td colspan="7" class="rationale">enforcement gap: policy config DENIES this path but it is REACHABLE at runtime on tcp/5432</td></tr>
+    
+      <tr>
+        <td>dmz &rarr; cde</td>
+        <td>MayReachOnly</td>
+        <td>TCP/443</td>
+        <td>ALLOWED</td>
+        <td>REACHABLE</td>
+        <td><span class="badge pass">CONSISTENT</span></td>
+        <td><span class="badge pass">PASS</span></td>
+      </tr>
+      
+    
+    </tbody>
+  </table>
+
+  
+  <h2>Control coverage (PCI-DSS-4.0)</h2>
+  <table>
+    <thead><tr><th>Path</th><th>Control</th><th>Requirement</th><th>Why this path evidences it</th></tr></thead>
+    <tbody>
+    
+      <tr>
+        <td>out-of-scope &rarr; cde</td>
+        <td class="mono">11.4.5</td>
+        <td>Penetration testing is performed on segmentation controls at least once every 12 months and after any changes</td>
+        <td class="rationale">actively proving this path is blocked is the segmentation penetration test 11.4.5 requires, performed continuously rather than annually</td>
+      </tr>
+    
+      <tr>
+        <td>out-of-scope &rarr; cde</td>
+        <td class="mono">1.3.1</td>
+        <td>Inbound traffic to the CDE is restricted to only necessary traffic</td>
+        <td class="rationale">confirms inbound traffic into the protected zone is restricted so the out-of-scope source cannot reach it</td>
+      </tr>
+    
+      <tr>
+        <td>dmz &rarr; cde</td>
+        <td class="mono">11.4.5</td>
+        <td>Penetration testing is performed on segmentation controls at least once every 12 months and after any changes</td>
+        <td class="rationale">actively proving only the allowlisted ports are reachable is a segmentation control test under 11.4.5</td>
+      </tr>
+    
+      <tr>
+        <td>dmz &rarr; cde</td>
+        <td class="mono">1.3.1</td>
+        <td>Inbound traffic to the CDE is restricted to only necessary traffic</td>
+        <td class="rationale">confirms inbound traffic into the zone is restricted to only the necessary (allowlisted) ports</td>
+      </tr>
+    
+    </tbody>
+  </table>
+  
+
+  <footer>
+    Rendered deterministically from the signed in-toto attestation
+    (<span class="mono">v0.4.0-test</span>). Verify the attestation with
+    <span class="mono">cosign verify-blob-attestation</span>. Active probing samples specific
+    source/target pairs; static analysis is exhaustive over the modeled policy set.
+  </footer>
+</div>
+</body>
+</html>

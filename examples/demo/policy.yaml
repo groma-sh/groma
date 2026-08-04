@@ -1,0 +1,20 @@
+# Intends to isolate the CDE database: only other CDE workloads may reach it.
+# On a CNI that enforces NetworkPolicy this blocks frontend -> cde.
+# On one that does not (e.g. kindnet), the API accepts it and enforces nothing,
+# which is the gap Groma is built to catch.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cde-isolation
+  namespace: cde
+spec:
+  podSelector:
+    matchLabels:
+      app: payments-db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: payments-db

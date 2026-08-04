@@ -1,0 +1,131 @@
+# Least-privilege RBAC for running Groma in-cluster: the CLI/prober as a
+# Job/CronJob (groma-prober), and, as of v0.2, the controller-manager
+# (groma-manager) that reconciles SegmentationIntent/ConformanceSchedule/
+# ConformanceRun. Both bind to the same "groma" ServiceAccount; no secrets, no
+# exec, no write access beyond pods/configmaps and Groma's own CRDs.
+#
+# The pod-management ClusterRole grants create/delete cluster-wide for
+# simplicity. To tie the tenancy boundary to opt-in namespaces, replace the
+# ClusterRoleBinding for pods with per-namespace RoleBindings and keep only
+# namespaces get/list at cluster scope.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: groma-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: groma
+  namespace: groma-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: groma-prober
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: groma-prober
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: groma-prober
+subjects:
+  - kind: ServiceAccount
+    name: groma
+    namespace: groma-system
+---
+# groma-analyzer: read-only access to the policy objects the v0.3 static
+# analyzer evaluates - upstream NetworkPolicy plus, where the cluster serves
+# the network-policy-api, AdminNetworkPolicy/BaselineAdminNetworkPolicy. Used by
+# both the CLI (--mode static|both) and the controller-manager; both bind the
+# same "groma" ServiceAccount, so one cluster-wide read grant covers them. A
+# cluster without the network-policy-api CRDs still works: those objects are
+# simply treated as absent.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: groma-analyzer
+rules:
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list"]
+  - apiGroups: ["policy.networking.k8s.io"]
+    resources: ["adminnetworkpolicies", "baselineadminnetworkpolicies"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: groma-analyzer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: groma-analyzer
+subjects:
+  - kind: ServiceAccount
+    name: groma
+    namespace: groma-system
+---
+# groma-manager: the controller-manager's access to its own CRDs (all
+# cluster-scoped - see api/v1alpha1). Status is a separate subresource so it
+# is granted explicitly.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: groma-manager
+rules:
+  - apiGroups: ["groma.dev"]
+    resources: ["segmentationintents", "conformanceschedules", "conformanceruns"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["groma.dev"]
+    resources: ["conformanceschedules/status", "conformanceruns/status"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: groma-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: groma-manager
+subjects:
+  - kind: ServiceAccount
+    name: groma
+    namespace: groma-system
+---
+# Evidence ConfigMaps only ever land in groma-system (the manager's own
+# namespace), so this is a namespaced Role rather than a cluster-wide grant.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: groma-manager-evidence
+  namespace: groma-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: groma-manager-evidence
+  namespace: groma-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: groma-manager-evidence
+subjects:
+  - kind: ServiceAccount
+    name: groma
+    namespace: groma-system

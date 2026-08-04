@@ -1,0 +1,99 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "subject": [
+    {
+      "name": "SegmentationIntent/pci-cde-isolation",
+      "digest": {
+        "sha256": "d753a102ab8dc6996d7c465ae1513f1f3d19f7127770f39a7b0149db7896e915"
+      }
+    }
+  ],
+  "predicateType": "https://groma.dev/attestations/SegmentationConformance/v1",
+  "predicate": {
+    "gromaVersion": "v0.4.0-test",
+    "intent": "pci-cde-isolation",
+    "framework": "PCI-DSS-4.0",
+    "declaredControls": [
+      "11.4.5",
+      "1.3.4"
+    ],
+    "evidencedControls": [
+      "1.3.1",
+      "11.4.5"
+    ],
+    "mode": "active+static",
+    "result": "FAIL",
+    "startedAt": "2026-08-03T03:00:00Z",
+    "finishedAt": "2026-08-03T03:00:12Z",
+    "cluster": "kind-groma",
+    "cni": "kindnet/unknown",
+    "enforcementMatchesConfig": false,
+    "enforcementDetail": "runtime allows one or more paths your policy config denies (enforcement gap)",
+    "assertions": [
+      {
+        "from": "out-of-scope",
+        "to": "cde",
+        "fromNamespace": "frontend",
+        "toNamespace": "payments",
+        "assertion": "MustNotReach",
+        "protocol": "TCP",
+        "port": 5432,
+        "methods": [
+          "static",
+          "active"
+        ],
+        "configAllows": false,
+        "runtimeReachable": "REACHABLE",
+        "positiveControl": "REACHABLE",
+        "reconciliation": "ENFORCEMENT-GAP",
+        "result": "FAIL",
+        "mappedControls": [
+          {
+            "framework": "PCI-DSS-4.0",
+            "id": "11.4.5",
+            "title": "Penetration testing is performed on segmentation controls at least once every 12 months and after any changes",
+            "rationale": "actively proving this path is blocked is the segmentation penetration test 11.4.5 requires, performed continuously rather than annually"
+          },
+          {
+            "framework": "PCI-DSS-4.0",
+            "id": "1.3.1",
+            "title": "Inbound traffic to the CDE is restricted to only necessary traffic",
+            "rationale": "confirms inbound traffic into the protected zone is restricted so the out-of-scope source cannot reach it"
+          }
+        ],
+        "detail": "enforcement gap: policy config DENIES this path but it is REACHABLE at runtime on tcp/5432"
+      },
+      {
+        "from": "dmz",
+        "to": "cde",
+        "fromNamespace": "dmz",
+        "toNamespace": "payments",
+        "assertion": "MayReachOnly",
+        "protocol": "TCP",
+        "port": 443,
+        "methods": [
+          "static",
+          "active"
+        ],
+        "configAllows": true,
+        "runtimeReachable": "REACHABLE",
+        "reconciliation": "CONSISTENT",
+        "result": "PASS",
+        "mappedControls": [
+          {
+            "framework": "PCI-DSS-4.0",
+            "id": "11.4.5",
+            "title": "Penetration testing is performed on segmentation controls at least once every 12 months and after any changes",
+            "rationale": "actively proving only the allowlisted ports are reachable is a segmentation control test under 11.4.5"
+          },
+          {
+            "framework": "PCI-DSS-4.0",
+            "id": "1.3.1",
+            "title": "Inbound traffic to the CDE is restricted to only necessary traffic",
+            "rationale": "confirms inbound traffic into the zone is restricted to only the necessary (allowlisted) ports"
+          }
+        ]
+      }
+    ]
+  }
+}

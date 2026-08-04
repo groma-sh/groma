@@ -1,0 +1,25 @@
+apiVersion: groma.dev/v1alpha1
+kind: SegmentationIntent
+metadata:
+  name: pci-dmz-to-cde
+# MayReachOnly: the DMZ may reach the CDE ONLY on tcp/443. Groma verifies that
+# 443 IS reachable and that a sampled non-allowlisted port is blocked, so an
+# accidentally-opened port shows up as a violation.
+zones:
+  - name: dmz
+    namespaceSelector: { matchLabels: { tier: dmz } }
+    podSelector: { matchLabels: { app: gateway } }
+  - name: cde
+    namespaceSelector: { matchLabels: { pci-scope: cde } }
+    podSelector: { matchLabels: { app: payments-api } }
+assertions:
+  - from: dmz
+    to: cde
+    type: MayReachOnly
+    ports:
+      - { protocol: TCP, port: 443 }
+compliance:
+  framework: PCI-DSS-4.0
+  controls:
+    - "1.3.4"
+    - "11.4.5"

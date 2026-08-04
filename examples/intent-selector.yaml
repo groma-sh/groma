@@ -1,0 +1,41 @@
+apiVersion: groma.dev/v1alpha1
+kind: SegmentationIntent
+metadata:
+  name: pci-cde-selector
+# Selector-based zones: namespaces are matched by label, not by hardcoded name,
+# so this intent works unchanged on real clusters where namespaces are named
+# per-team (team-a-prod-cde) rather than "cde". The pod labels give the probe
+# the same NetworkPolicy identity as a real workload in the zone.
+zones:
+  - name: cde
+    namespaceSelector:
+      matchLabels:
+        zone: cde
+    podSelector:
+      matchLabels:
+        app: payments-db
+  - name: frontend
+    namespaceSelector:
+      matchLabels:
+        zone: frontend
+    podSelector:
+      matchLabels:
+        app: web
+assertions:
+  - from: frontend
+    to: cde
+    type: MustNotReach
+    ports:
+      - protocol: TCP
+        port: 5432
+  - from: cde
+    to: cde
+    type: MustReach
+    ports:
+      - protocol: TCP
+        port: 5432
+compliance:
+  framework: PCI-DSS-4.0
+  controls:
+    - "11.4.5"
+    - "1.3.4"

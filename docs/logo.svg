@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Groma logo">
+  <title>Groma</title>
+  <!-- CANONICAL SOURCE: the website repo mirrors this file verbatim to public/logo.svg. Edit here, then re-copy. -->
+  <!-- The mark is a groma: the Roman surveyor's instrument that laid out straight lines and right -->
+  <!-- angles on the grid. Staff + cross arm in lavender; the two plumb bobs (the probes that test -->
+  <!-- whether the boundary is true) in green. -->
+
+  <!-- tile -->
+  <rect x="2" y="2" width="124" height="124" rx="30" fill="#0B1120"/>
+  <rect x="2.75" y="2.75" width="122.5" height="122.5" rx="29.25" fill="none" stroke="#3A3D6B" stroke-width="1.5"/>
+
+  <!-- groma mark -->
+  <g stroke-linecap="round">
+    <!-- staff -->
+    <line x1="64" y1="28" x2="64" y2="91" stroke="#8890C8" stroke-width="8"/>
+    <!-- ground point -->
+    <path d="M60 89 L68 89 L64 106 Z" fill="#8890C8"/>
+    <!-- cross arm -->
+    <line x1="28" y1="44" x2="100" y2="44" stroke="#8890C8" stroke-width="8"/>
+    <!-- plumb lines -->
+    <line x1="28" y1="44" x2="28" y2="70" stroke="#8890C8" stroke-width="4"/>
+    <line x1="100" y1="44" x2="100" y2="70" stroke="#8890C8" stroke-width="4"/>
+    <!-- plumb bobs -->
+    <path d="M28 71 L36 81 L28 91 L20 81 Z" fill="#34D399"/>
+    <path d="M100 71 L108 81 L100 91 L92 81 Z" fill="#34D399"/>
+  </g>
+</svg>

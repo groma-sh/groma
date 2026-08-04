@@ -1,0 +1,216 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: conformanceruns.groma.dev
+spec:
+  group: groma.dev
+  names:
+    kind: ConformanceRun
+    listKind: ConformanceRunList
+    plural: conformanceruns
+    shortNames:
+    - cr
+    singular: conformancerun
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.result
+      name: Result
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          ConformanceRun is a single execution of a SegmentationIntent's assertions,
+          created ad hoc or by a ConformanceSchedule. It is run-once: once
+          status.phase reaches Completed or Failed, the controller never re-runs it.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              evidence:
+                description: |-
+                  Evidence controls signing of this run's attestation. Like ProbeStrategy it
+                  is copied down from the schedule so the run is self-contained; the Retain
+                  field is ignored here (retention is a schedule-level concern).
+                properties:
+                  keyRef:
+                    description: |-
+                      KeyRef is a cosign key reference used when Keyless is false: a KMS URI
+                      (awskms://, gcpkms://, azurekms://, hashivault://) or an in-cluster secret
+                      ("k8s://namespace/secret").
+                    type: string
+                  keyless:
+                    description: |-
+                      Keyless selects Sigstore keyless signing (Fulcio + Rekor over the manager's
+                      ambient OIDC/workload identity). When false, KeyRef must be set.
+                    type: boolean
+                  retain:
+                    description: |-
+                      Retain is how long to keep Completed/Failed ConformanceRuns (and their
+                      evidence ConfigMaps) before the schedule prunes them, e.g. "720h" or the
+                      day-suffixed "400d". Empty means keep forever.
+                    type: string
+                  sign:
+                    description: |-
+                      Sign turns on signing of the in-toto attestation. When false the run still
+                      stores the unsigned statement and HTML report; only attestation.json is
+                      omitted.
+                    type: boolean
+                type: object
+              intentRef:
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              mode:
+                description: Mode defaults to ["active"] when empty. List both to
+                  reconcile config vs runtime.
+                items:
+                  description: |-
+                    Mode selects which conformance signal(s) a run collects: "active" runs the
+                    runtime prober, "static" runs the policy analyzer, and listing both runs each
+                    and reconciles config against runtime. An empty list defaults to ["active"].
+                  type: string
+                type: array
+              probeStrategy:
+                description: |-
+                  ProbeStrategy overrides prober defaults for this run. A ConformanceRun
+                  created by a ConformanceSchedule carries the schedule's ProbeStrategy
+                  here; this is a deliberate addition beyond the plan.md sketch (which
+                  leaves it only on the Schedule) so a run's behavior is fully determined
+                  by its own spec, without needing to chase a possibly-deleted owner.
+                properties:
+                  image:
+                    type: string
+                  maxConcurrentProbes:
+                    format: int32
+                    type: integer
+                  retries:
+                    format: int32
+                    type: integer
+                type: object
+            required:
+            - intentRef
+            type: object
+          status:
+            properties:
+              assertionsFailed:
+                format: int32
+                type: integer
+              assertionsIndeterminate:
+                format: int32
+                type: integer
+              assertionsPassed:
+                format: int32
+                type: integer
+              completionTime:
+                format: date-time
+                type: string
+              conditions:
+                description: |-
+                  Conditions carries "Complete", "Sound", and - for runs that reconciled
+                  both signals (mode active+static) - "EnforcementMatchesConfig", which is
+                  False when runtime enforcement disagreed with the policy configuration on
+                  any path (the enforcement gap of plan.md section 8.3).
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              evidenceRef:
+                description: |-
+                  EvidenceRef is the name of the ConfigMap (in the manager's namespace)
+                  holding the full JSON evidence report.
+                type: string
+              phase:
+                type: string
+              result:
+                description: Result mirrors internal/evidence.Result.
+                type: string
+              startTime:
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

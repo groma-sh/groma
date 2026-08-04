@@ -1,0 +1,4 @@
+/groma
+/bin/
+*.out
+/evidence.json
