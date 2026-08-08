@@ -84,4 +84,5 @@ result is `INDETERMINATE`, never a false `PASS`.
 - [Website and docs](https://groma-sh.github.io)
 - [Examples](examples/)
 - Contributing: issues and PRs welcome
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 - [License: Apache-2.0](LICENSE)
