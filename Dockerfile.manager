@@ -4,7 +4,10 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/groma-manager ./cmd/manager
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build \
+      -ldflags "-X github.com/groma-sh/groma/internal/version.Version=${VERSION}" \
+      -o /out/groma-manager ./cmd/manager
 
 FROM gcr.io/distroless/static:nonroot
 COPY --from=build /out/groma-manager /groma-manager

@@ -30,9 +30,15 @@ type Probe struct {
 	Observed        string `json:"observed,omitempty"`
 	PositiveControl string `json:"positiveControl,omitempty"`
 	Config          string `json:"config,omitempty"`
-	Reconciliation  string `json:"reconciliation,omitempty"`
-	Result          Result `json:"result"`
-	Detail          string `json:"detail,omitempty"`
+	// ConfigSource names the engine behind Config ("networkpolicy", or a CNI
+	// adapter name), and ConfigReason/ConfigPolicies cite the rule that decided
+	// it, so an auditor can trace a verdict to the policy text.
+	ConfigSource   string   `json:"configSource,omitempty"`
+	ConfigReason   string   `json:"configReason,omitempty"`
+	ConfigPolicies []string `json:"configPolicies,omitempty"`
+	Reconciliation string   `json:"reconciliation,omitempty"`
+	Result         Result   `json:"result"`
+	Detail         string   `json:"detail,omitempty"`
 }
 
 type ResolvedZone struct {
@@ -47,10 +53,13 @@ type Report struct {
 	Framework string   `json:"framework,omitempty"`
 	Controls  []string `json:"controls,omitempty"`
 
-	Mode       string    `json:"mode,omitempty"`
-	StartedAt  time.Time `json:"startedAt"`
-	FinishedAt time.Time `json:"finishedAt"`
-	Result     Result    `json:"result"`
+	Mode string `json:"mode,omitempty"`
+	// CNIAdapters names the CNI-native policy engines that took part in the
+	// static analysis, so evidence states how complete the config model was.
+	CNIAdapters []string  `json:"cniAdapters,omitempty"`
+	StartedAt   time.Time `json:"startedAt"`
+	FinishedAt  time.Time `json:"finishedAt"`
+	Result      Result    `json:"result"`
 
 	EnforcementMatchesConfig *bool          `json:"enforcementMatchesConfig,omitempty"`
 	EnforcementDetail        string         `json:"enforcementDetail,omitempty"`
@@ -95,6 +104,9 @@ func (r *Report) RenderText(w io.Writer) {
 	line := "intent: " + r.Intent
 	if r.Mode != "" {
 		line += "   mode: " + r.Mode
+	}
+	if len(r.CNIAdapters) > 0 {
+		line += "   cni adapters: " + strings.Join(r.CNIAdapters, ", ")
 	}
 	if r.Framework != "" {
 		line += "   framework: " + r.Framework

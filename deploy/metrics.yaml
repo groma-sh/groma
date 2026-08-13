@@ -1,0 +1,108 @@
+# Prometheus scrape configuration for the Groma controller-manager.
+#
+# The manager serves /metrics on :8080 by default (see cmd/manager). Apply this
+# after deploy/manager.yaml. The ServiceMonitor and PrometheusRule need the
+# Prometheus Operator CRDs; on a cluster without them, apply only the Service
+# and point your own scrape config at it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: groma-manager-metrics
+  namespace: groma-system
+  labels:
+    app.kubernetes.io/name: groma-manager
+    app.kubernetes.io/managed-by: groma
+spec:
+  selector:
+    app.kubernetes.io/name: groma-manager
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: groma-manager
+  namespace: groma-system
+  labels:
+    app.kubernetes.io/name: groma-manager
+    app.kubernetes.io/managed-by: groma
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: groma-manager
+  endpoints:
+    - port: metrics
+      interval: 30s
+---
+# The alerts worth waking someone for. The first is Groma's flagship finding:
+# the cluster believes it is segmented and is not.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: groma-segmentation
+  namespace: groma-system
+  labels:
+    app.kubernetes.io/name: groma-manager
+    app.kubernetes.io/managed-by: groma
+spec:
+  groups:
+    - name: groma.segmentation
+      rules:
+        - alert: GromaEnforcementGap
+          expr: groma_last_run_enforcement_gaps > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Segmentation is configured but not enforced ({{ $labels.intent }})"
+            description: >-
+              The most recent Groma run for intent {{ $labels.intent }} found {{ $value }} path(s)
+              that the policy configuration denies but that are reachable at runtime. The cluster
+              believes it is segmented and is not. Inspect the run's evidence artifact.
+
+        - alert: GromaSegmentationFailing
+          expr: groma_last_run_result{result="FAIL"} == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Segmentation conformance is failing ({{ $labels.intent }})"
+            description: >-
+              The most recent Groma run for intent {{ $labels.intent }} failed. For a PCI-scoped
+              intent this is a segmentation control that is not holding.
+
+        - alert: GromaResultsUnsound
+          expr: groma_last_run_assertions{result="INDETERMINATE"} > 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Groma cannot attribute some results to policy ({{ $labels.intent }})"
+            description: >-
+              {{ $value }} assertion(s) in the most recent run for intent {{ $labels.intent }} were
+              INDETERMINATE: a positive control failed, or a policy uses a construct Groma does not
+              model. These paths carry no evidence either way and must not be treated as passes.
+
+        - alert: GromaRunsStale
+          expr: time() - groma_last_run_timestamp_seconds > 172800
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "No recent Groma run for {{ $labels.intent }}"
+            description: >-
+              The last conformance run for intent {{ $labels.intent }} finished over 48 hours ago.
+              Continuous evidence has stopped being produced; check the ConformanceSchedule and the
+              controller-manager.
+
+        - alert: GromaEvidencePublishFailing
+          expr: increase(groma_evidence_publish_total{outcome="failure"}[1h]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "Groma cannot publish evidence to the {{ $labels.sink }} sink"
+            description: >-
+              Evidence is still stored in-cluster, but it is not reaching durable storage outside the
+              cluster it audits, so the audit trail is only as trustworthy as this cluster.

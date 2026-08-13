@@ -41,10 +41,14 @@ type ConformanceRunStatus struct {
 	AssertionsFailed        int32    `json:"assertionsFailed,omitempty"`
 	AssertionsIndeterminate int32    `json:"assertionsIndeterminate,omitempty"`
 	// ConfigMap (in the manager's namespace) holding the full JSON evidence report.
-	EvidenceRef    string       `json:"evidenceRef,omitempty"`
-	StartTime      *metav1.Time `json:"startTime,omitempty"`
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
-	// "Complete", "Sound", and "EnforcementMatchesConfig" (False = enforcement gap).
+	EvidenceRef string `json:"evidenceRef,omitempty"`
+	// Reference to the published evidence when spec.evidence.sink is set: a
+	// digest-pinned OCI reference, or a storage URI.
+	EvidenceSinkRef string       `json:"evidenceSinkRef,omitempty"`
+	StartTime       *metav1.Time `json:"startTime,omitempty"`
+	CompletionTime  *metav1.Time `json:"completionTime,omitempty"`
+	// "Complete", "Sound", "EnforcementMatchesConfig" (False = enforcement gap),
+	// "AttestationSigned", and "EvidencePublished".
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 

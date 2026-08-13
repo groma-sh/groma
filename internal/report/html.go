@@ -38,7 +38,7 @@ func RenderHTML(w io.Writer, stmt *attest.Statement) error {
 var htmlTemplate = template.Must(template.New("report").Funcs(template.FuncMap{
 	"utc":       func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 MST") },
 	"badge":     badgeClass,
-	"tristate":  tristate,
+	"config":    configCell,
 	"reconcile": reconcileBadge,
 }).Parse(htmlSource))
 
@@ -55,14 +55,19 @@ func badgeClass(result string) string {
 	}
 }
 
-func tristate(b *bool) string {
+// configCell renders the config verdict. A nil ConfigAllows with a source set
+// is the undecidable case: some engine looked and could not tell, which reads
+// very differently from a run that never asked.
+func configCell(r attest.AssertionRecord) string {
 	switch {
-	case b == nil:
-		return "-"
-	case *b:
+	case r.ConfigAllows != nil && *r.ConfigAllows:
 		return "ALLOWED"
-	default:
+	case r.ConfigAllows != nil:
 		return "DENIED"
+	case r.ConfigSource != "":
+		return "UNKNOWN"
+	default:
+		return "-"
 	}
 }
 
@@ -120,7 +125,8 @@ const htmlSource = `<!doctype html>
     <dt>Started</dt><dd>{{utc .Predicate.StartedAt}}</dd>
     <dt>Finished</dt><dd>{{utc .Predicate.FinishedAt}} ({{.Duration}})</dd>
     {{if .Predicate.Cluster}}<dt>Cluster</dt><dd>{{.Predicate.Cluster}}</dd>{{end}}
-    {{if .Predicate.CNI}}<dt>CNI</dt><dd>{{.Predicate.CNI}}</dd>{{end}}
+    {{if .Predicate.CNI}}<dt>CNI</dt><dd>{{.Predicate.CNI}}</dd>{{end}}{{if .Predicate.CNIAdapters}}
+    <dt>CNI adapters</dt><dd>{{range $i, $a := .Predicate.CNIAdapters}}{{if $i}}, {{end}}{{$a}}{{end}}</dd>{{end}}
     <dt>Subject</dt><dd>{{.SubjectName}}</dd>
     <dt>Digest</dt><dd class="mono">sha256:{{.SubjectDigest}}</dd>
     {{if .Predicate.EvidencedControls}}<dt>Controls evidenced</dt><dd>{{range $i, $c := .Predicate.EvidencedControls}}{{if $i}}, {{end}}{{$c}}{{end}}</dd>{{end}}
@@ -142,12 +148,12 @@ const htmlSource = `<!doctype html>
         <td>{{.From}} &rarr; {{.To}}</td>
         <td>{{.Assertion}}</td>
         <td>{{.Protocol}}/{{.Port}}</td>
-        <td>{{tristate .ConfigAllows}}</td>
+        <td>{{config .}}</td>
         <td>{{if .RuntimeReachable}}{{.RuntimeReachable}}{{else}}-{{end}}</td>
         <td>{{if .Reconciliation}}<span class="badge {{reconcile .Reconciliation}}">{{.Reconciliation}}</span>{{else}}-{{end}}</td>
         <td><span class="badge {{badge .Result}}">{{.Result}}</span></td>
       </tr>
-      {{if .Detail}}<tr><td colspan="7" class="rationale">{{.Detail}}</td></tr>{{end}}
+      {{if or .Detail .ConfigReason}}<tr><td colspan="7" class="rationale">{{if .Detail}}{{.Detail}}{{end}}{{if .ConfigReason}}{{if .Detail}}<br>{{end}}config verdict from {{.ConfigSource}}: {{.ConfigReason}}{{end}}</td></tr>{{end}}
     {{end}}
     </tbody>
   </table>

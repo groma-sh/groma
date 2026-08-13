@@ -36,12 +36,15 @@ type Statement struct {
 }
 
 type Predicate struct {
-	GromaVersion             string            `json:"gromaVersion"`
-	Intent                   string            `json:"intent"`
-	Framework                string            `json:"framework,omitempty"`
-	DeclaredControls         []string          `json:"declaredControls,omitempty"`
-	EvidencedControls        []string          `json:"evidencedControls,omitempty"`
-	Mode                     string            `json:"mode"`
+	GromaVersion      string   `json:"gromaVersion"`
+	Intent            string   `json:"intent"`
+	Framework         string   `json:"framework,omitempty"`
+	DeclaredControls  []string `json:"declaredControls,omitempty"`
+	EvidencedControls []string `json:"evidencedControls,omitempty"`
+	Mode              string   `json:"mode"`
+	// CNIAdapters names the CNI-native policy engines the static analysis used
+	// beyond upstream NetworkPolicy.
+	CNIAdapters              []string          `json:"cniAdapters,omitempty"`
 	Result                   string            `json:"result"`
 	StartedAt                time.Time         `json:"startedAt"`
 	FinishedAt               time.Time         `json:"finishedAt"`
@@ -53,15 +56,22 @@ type Predicate struct {
 }
 
 type AssertionRecord struct {
-	From             string               `json:"from"`
-	To               string               `json:"to"`
-	FromNamespace    string               `json:"fromNamespace,omitempty"`
-	ToNamespace      string               `json:"toNamespace,omitempty"`
-	Assertion        string               `json:"assertion"`
-	Protocol         string               `json:"protocol"`
-	Port             int32                `json:"port"`
-	Methods          []string             `json:"methods"`
-	ConfigAllows     *bool                `json:"configAllows,omitempty"`
+	From          string   `json:"from"`
+	To            string   `json:"to"`
+	FromNamespace string   `json:"fromNamespace,omitempty"`
+	ToNamespace   string   `json:"toNamespace,omitempty"`
+	Assertion     string   `json:"assertion"`
+	Protocol      string   `json:"protocol"`
+	Port          int32    `json:"port"`
+	Methods       []string `json:"methods"`
+	ConfigAllows  *bool    `json:"configAllows,omitempty"`
+	// ConfigSource names the engine that decided ConfigAllows ("networkpolicy"
+	// or a CNI adapter name); ConfigReason and ConfigPolicies cite the rule. A
+	// nil ConfigAllows with a ConfigSource set means the config verdict was
+	// undecidable, and ConfigReason says which construct made it so.
+	ConfigSource     string               `json:"configSource,omitempty"`
+	ConfigReason     string               `json:"configReason,omitempty"`
+	ConfigPolicies   []string             `json:"configPolicies,omitempty"`
 	RuntimeReachable string               `json:"runtimeReachable,omitempty"`
 	PositiveControl  string               `json:"positiveControl,omitempty"`
 	Reconciliation   string               `json:"reconciliation,omitempty"`
@@ -104,6 +114,9 @@ func buildPredicate(report *evidence.Report, meta Meta) Predicate {
 			Port:             p.Port,
 			Methods:          methods,
 			ConfigAllows:     configAllows(p.Config),
+			ConfigSource:     p.ConfigSource,
+			ConfigReason:     p.ConfigReason,
+			ConfigPolicies:   p.ConfigPolicies,
 			RuntimeReachable: p.Observed,
 			PositiveControl:  p.PositiveControl,
 			Reconciliation:   p.Reconciliation,
@@ -119,6 +132,7 @@ func buildPredicate(report *evidence.Report, meta Meta) Predicate {
 		DeclaredControls:         report.Controls,
 		EvidencedControls:        compliance.Controls(report.Framework),
 		Mode:                     report.Mode,
+		CNIAdapters:              report.CNIAdapters,
 		Result:                   string(report.Result),
 		StartedAt:                report.StartedAt,
 		FinishedAt:               report.FinishedAt,

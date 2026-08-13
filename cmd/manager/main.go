@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -18,12 +19,13 @@ import (
 )
 
 func main() {
-	var metricsAddr, probeAddr, evidenceNamespace, clusterID string
+	var metricsAddr, probeAddr, evidenceNamespace, clusterID, cniAdapters string
 	var leaderElect bool
-	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "metrics endpoint (0 disables it)")
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Prometheus metrics endpoint (0 disables it)")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "health probe endpoint")
 	flag.StringVar(&evidenceNamespace, "evidence-namespace", "groma-system", "namespace evidence ConfigMaps are written to")
 	flag.StringVar(&clusterID, "cluster-id", "", "cluster identifier recorded in evidence attestations")
+	flag.StringVar(&cniAdapters, "cni-adapters", "auto", "CNI-native policy adapters to include in static analysis: auto, none, or a comma-separated list")
 	flag.BoolVar(&leaderElect, "leader-elect", false, "enable leader election for HA (single replica by default in v0.2)")
 	opts := zap.Options{Development: true}
 	opts.BindFlags(flag.CommandLine)
@@ -68,12 +70,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		setupLog.Error(err, "unable to build dynamic client for CNI policy adapters")
+		os.Exit(1)
+	}
+
 	if err := (&controller.ConformanceRunReconciler{
 		Client:            mgr.GetClient(),
 		APIReader:         mgr.GetAPIReader(),
 		Scheme:            mgr.GetScheme(),
 		Clientset:         clientset,
 		PolicyClient:      policyClient,
+		DynamicClient:     dynamicClient,
+		CNIAdapters:       cniAdapters,
 		EvidenceNamespace: evidenceNamespace,
 		ClusterID:         clusterID,
 	}).SetupWithManager(mgr); err != nil {
@@ -97,7 +107,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager", "evidenceNamespace", evidenceNamespace)
+	setupLog.Info("starting manager", "evidenceNamespace", evidenceNamespace, "cniAdapters", cniAdapters)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
