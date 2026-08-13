@@ -19,10 +19,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: |-
-          SegmentationIntent declares zones and the connectivity assertions that must
-          hold between them. It is cluster-scoped: a single intent's zones routinely
-          span multiple namespaces, so there is no natural namespace to own it.
+        description: Declares zones and connectivity assertions; cluster-scoped.
         properties:
           apiVersion:
             description: |-
@@ -84,12 +81,8 @@ spec:
               zones:
                 items:
                   description: |-
-                    Zone is a set of workloads the intent reasons about, located either by an
-                    exact namespace name or a namespaceSelector, with an optional podSelector
-                    giving the identity labels a prober must stamp. podSelector uses the
-                    standard metav1.LabelSelector for schema forward-compatibility, but
-                    matchExpressions is rejected at conversion time: the engine only supports
-                    matchLabels today (see internal/intent.FromCRD).
+                    Workload set located by namespace name or namespaceSelector, with an optional
+                    podSelector (matchLabels only) giving the identity labels a prober must stamp.
                   properties:
                     name:
                       type: string

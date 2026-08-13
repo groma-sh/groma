@@ -51,6 +51,13 @@ spec:
     maxConcurrentProbes: 8
   evidence:
     retain: "30d"
+    # Publish each run's evidence outside the cluster it audits (v0.2). The
+    # bytes published are identical to the in-cluster ConfigMap, so a signature
+    # verifies the same from either. Pick one:
+    # sink: { type: oci,  repo: registry.example.com/groma/evidence }
+    # sink: { type: s3,   bucket: my-audit-bucket, prefix: groma, region: eu-west-1 }
+    # sink: { type: gcs,  bucket: my-audit-bucket, prefix: groma }
+    # sink: { type: file, path: /var/lib/groma/evidence }
     # Signed in-toto attestation (v0.4). Off by default; when on, each run stores
     # attestation.json (a DSSE envelope) next to statement.json and report.html.
     # sign: true

@@ -133,3 +133,53 @@ func TestStaticProbes(t *testing.T) {
 		t.Errorf("static-only probe must have no runtime Observed, got %q", got[0].Observed)
 	}
 }
+
+func TestStaticProbes_UndecidedConfigIsIndeterminate(t *testing.T) {
+	checks := []prober.Check{mustNotReachCheck()}
+	cfg := []analyzer.ConfigResult{{
+		Unknown: true, Source: "calico",
+		Reason:   "GlobalNetworkPolicy lockdown is in tier \"security\"",
+		Policies: []string{"GlobalNetworkPolicy lockdown"},
+	}}
+	got := StaticProbes(checks, cfg)[0]
+	if got.Result != evidence.Indeterminate {
+		t.Errorf("result = %s, want INDETERMINATE: an undecidable config must never pass", got.Result)
+	}
+	if got.Config != ConfigUnknown {
+		t.Errorf("config = %q, want %q", got.Config, ConfigUnknown)
+	}
+	if got.ConfigSource != "calico" || got.ConfigReason == "" || len(got.ConfigPolicies) != 1 {
+		t.Errorf("the citation must survive into evidence, got source=%q reason=%q policies=%v",
+			got.ConfigSource, got.ConfigReason, got.ConfigPolicies)
+	}
+}
+
+func TestReconcile_UndecidedConfigKeepsRuntimeAndSkipsTheCell(t *testing.T) {
+	checks := []prober.Check{mustNotReachCheck()}
+	rt := []evidence.Probe{runtimeProbe("BLOCKED", evidence.Pass)}
+	cfg := []analyzer.ConfigResult{{Unknown: true, Source: "antrea", Reason: "baseline-tier policy applies"}}
+	got := Reconcile(checks, rt, cfg)[0]
+	if got.Result != evidence.Pass {
+		t.Errorf("result = %s, want PASS: the runtime half still stands on its own", got.Result)
+	}
+	if got.Reconciliation != "" {
+		t.Errorf("an undecidable config must not produce a 2x2 cell, got %q", got.Reconciliation)
+	}
+	if got.Config != ConfigUnknown || got.ConfigSource != "antrea" {
+		t.Errorf("config = %q from %q, want %q from antrea", got.Config, got.ConfigSource, ConfigUnknown)
+	}
+}
+
+func TestReconcile_RecordsTheDecidingEngine(t *testing.T) {
+	checks := []prober.Check{mustNotReachCheck()}
+	rt := []evidence.Probe{runtimeProbe("BLOCKED", evidence.Pass)}
+	cfg := []analyzer.ConfigResult{{Allows: false, Source: "cilium",
+		Reason: "CiliumClusterwideNetworkPolicy quarantine denies this path", Policies: []string{"CiliumClusterwideNetworkPolicy quarantine"}}}
+	got := Reconcile(checks, rt, cfg)[0]
+	if got.ConfigSource != "cilium" || len(got.ConfigPolicies) != 1 {
+		t.Errorf("evidence must cite the CNI policy that decided, got source=%q policies=%v", got.ConfigSource, got.ConfigPolicies)
+	}
+	if got.Reconciliation != CellConsistent {
+		t.Errorf("cell = %q, want %q", got.Reconciliation, CellConsistent)
+	}
+}

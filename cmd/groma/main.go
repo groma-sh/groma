@@ -1,19 +1,24 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	policyapi "sigs.k8s.io/network-policy-api/pkg/client/clientset/versioned"
 
+	"github.com/groma-sh/groma/internal/adapters"
 	"github.com/groma-sh/groma/internal/analyzer"
 	"github.com/groma-sh/groma/internal/attest"
 	"github.com/groma-sh/groma/internal/evidence"
@@ -21,6 +26,7 @@ import (
 	"github.com/groma-sh/groma/internal/prober"
 	"github.com/groma-sh/groma/internal/reconcile"
 	reportpkg "github.com/groma-sh/groma/internal/report"
+	sinkpkg "github.com/groma-sh/groma/internal/sink"
 	"github.com/groma-sh/groma/internal/version"
 )
 
@@ -31,7 +37,7 @@ const (
 )
 
 func main() {
-	var intentPath, outputPath, kubeconfig, probeImage, mode string
+	var intentPath, outputPath, kubeconfig, probeImage, mode, cniAdapters string
 	var maxConcurrent, retries int
 	var dryRun bool
 	var timeout time.Duration
@@ -39,6 +45,7 @@ func main() {
 	flag.StringVar(&intentPath, "intent", "", "path to a SegmentationIntent YAML file")
 	flag.StringVar(&outputPath, "output", "", "path to write JSON evidence (default: stdout)")
 	flag.StringVar(&mode, "mode", modeActive, "which signals to collect: active (runtime probing), static (policy analysis), or both (reconcile config vs runtime)")
+	flag.StringVar(&cniAdapters, "cni-adapter", "auto", "CNI-native policy adapters to include in static analysis: auto (every CNI whose CRDs this cluster serves), none, or a comma-separated list ("+adapterList()+")")
 	flag.IntVar(&maxConcurrent, "max-concurrent-probes", 8, "maximum probes to run in parallel")
 	flag.StringVar(&probeImage, "probe-image", "busybox:1.36", "container image used for probe pods")
 	flag.IntVar(&retries, "retries", 3, "connection attempts per probe before concluding blocked")
@@ -47,6 +54,7 @@ func main() {
 	flag.StringVar(&emit.statement, "statement", "", "path to write the unsigned in-toto statement JSON")
 	flag.StringVar(&emit.attest, "attest", "", "path to write the signed in-toto attestation (DSSE envelope); requires --sign-key or --keyless")
 	flag.StringVar(&emit.html, "html", "", "path to write the human-readable HTML report")
+	flag.StringVar(&emit.sink, "sink", "", "publish the evidence bundle to a durable sink: oci://repo, s3://bucket/prefix, gs://bucket/prefix, or a directory path")
 	flag.StringVar(&emit.signKey, "sign-key", "", "cosign key reference for --attest: a key file or a KMS/k8s URI (awskms://, gcpkms://, k8s://ns/secret)")
 	flag.BoolVar(&emit.keyless, "keyless", false, "sign --attest keyless via Fulcio + Rekor over an ambient OIDC identity")
 	flag.BoolVar(&emit.noRekor, "no-rekor", false, "with --keyless, skip uploading the signature to the Rekor transparency log")
@@ -108,10 +116,15 @@ func main() {
 		fatal(err)
 	}
 	report.Zones = zones
-	report.Probes, err = collect(ctx, mode, pr, client, cfg, checks)
-	if err != nil {
-		fatal(err)
+
+	var an *analyzer.Analyzer
+	if mode != modeActive {
+		if an, err = buildAnalyzer(ctx, client, cfg, cniAdapters); err != nil {
+			fatal(err)
+		}
+		report.CNIAdapters = an.Adapters()
 	}
+	report.Probes = collect(ctx, mode, pr, an, checks)
 	reconcile.SetEnforcement(report)
 	report.FinishedAt = time.Now().UTC()
 	report.Summarize()
@@ -141,31 +154,38 @@ func main() {
 	}
 }
 
-func collect(ctx context.Context, mode string, pr *prober.Prober, client kubernetes.Interface, cfg *rest.Config, checks []prober.Check) ([]evidence.Probe, error) {
+func collect(ctx context.Context, mode string, pr *prober.Prober, an *analyzer.Analyzer, checks []prober.Check) []evidence.Probe {
 	if mode == modeActive {
-		return pr.ProbeChecks(ctx, checks), nil
-	}
-
-	an, err := buildAnalyzer(ctx, client, cfg)
-	if err != nil {
-		return nil, err
+		return pr.ProbeChecks(ctx, checks)
 	}
 	static := an.Analyze(checks)
 
 	if mode == modeStatic {
-		return reconcile.StaticProbes(checks, static), nil
+		return reconcile.StaticProbes(checks, static)
 	}
 	runtime := pr.ProbeChecks(ctx, checks)
-	return reconcile.Reconcile(checks, runtime, static), nil
+	return reconcile.Reconcile(checks, runtime, static)
 }
 
-func buildAnalyzer(ctx context.Context, client kubernetes.Interface, cfg *rest.Config) (*analyzer.Analyzer, error) {
+func buildAnalyzer(ctx context.Context, client kubernetes.Interface, cfg *rest.Config, cniAdapters string) (*analyzer.Analyzer, error) {
 
 	policyClient, err := policyapi.NewForConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return analyzer.New(ctx, client, policyClient)
+	dc, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	loaded, err := adapters.Load(ctx, dc, cniAdapters)
+	if err != nil {
+		return nil, err
+	}
+	return analyzer.New(ctx, client, policyClient, loaded...)
+}
+
+func adapterList() string {
+	return strings.Join(adapters.Names(), ", ")
 }
 
 func modeLabel(mode string) string {
@@ -179,6 +199,7 @@ type emitOptions struct {
 	statement string
 	attest    string
 	html      string
+	sink      string
 	signKey   string
 	keyless   bool
 	noRekor   bool
@@ -187,7 +208,7 @@ type emitOptions struct {
 }
 
 func (o emitOptions) run(ctx context.Context, report *evidence.Report, si *intent.SegmentationIntent) error {
-	if o.statement == "" && o.attest == "" && o.html == "" {
+	if o.statement == "" && o.attest == "" && o.html == "" && o.sink == "" {
 		return nil
 	}
 	stmt, err := attest.BuildStatement(report, si, attest.Meta{
@@ -203,21 +224,33 @@ func (o emitOptions) run(ctx context.Context, report *evidence.Report, si *inten
 		return err
 	}
 
+	// bundle is what a sink publishes: every artifact this run produced, under
+	// the same names the controller uses, so evidence from the CLI and from the
+	// controller are interchangeable.
+	bundle := map[string][]byte{"statement.json": stmtBytes}
+	if evidenceJSON, err := json.MarshalIndent(report, "", "  "); err == nil {
+		bundle["evidence.json"] = evidenceJSON
+	} else {
+		return err
+	}
+
 	if o.statement != "" {
 		if err := os.WriteFile(o.statement, stmtBytes, 0o644); err != nil {
 			return err
 		}
 	}
+
+	var html bytes.Buffer
+	if err := reportpkg.RenderHTML(&html, stmt); err != nil {
+		return err
+	}
+	bundle["report.html"] = html.Bytes()
 	if o.html != "" {
-		f, err := os.Create(o.html)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		if err := reportpkg.RenderHTML(f, stmt); err != nil {
+		if err := os.WriteFile(o.html, html.Bytes(), 0o644); err != nil {
 			return err
 		}
 	}
+
 	if o.attest != "" {
 		signer, err := o.signer(ctx)
 		if err != nil {
@@ -230,15 +263,49 @@ func (o emitOptions) run(ctx context.Context, report *evidence.Report, si *inten
 		if err := os.WriteFile(o.attest, res.Envelope, 0o644); err != nil {
 			return err
 		}
+		bundle["attestation.json"] = res.Envelope
 		if len(res.CertChainPEM) > 0 {
 			if err := os.WriteFile(o.attest+".pem", res.CertChainPEM, 0o644); err != nil {
 				return err
 			}
+			bundle["attestation.pem"] = res.CertChainPEM
 		}
 		if res.RekorLogIndex != 0 {
 			fmt.Fprintf(os.Stderr, "  attestation recorded in Rekor at log index %d\n", res.RekorLogIndex)
 		}
 	}
+
+	return o.publish(ctx, report, bundle)
+}
+
+func (o emitOptions) publish(ctx context.Context, report *evidence.Report, bundle map[string][]byte) error {
+	if o.sink == "" {
+		return nil
+	}
+	cfg, err := sinkpkg.ParseURI(o.sink)
+	if err != nil {
+		return err
+	}
+	s, err := sinkpkg.New(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	// A one-shot CLI run has no ConformanceRun object to borrow a name from, so
+	// the intent and the run's start time identify the artifact.
+	runName := report.Intent + "-" + report.StartedAt.UTC().Format("20060102T150405Z")
+	ref, err := s.Write(ctx, sinkpkg.Artifact{
+		Run:   runName,
+		Files: bundle,
+		Annotations: map[string]string{
+			"groma.dev/intent": report.Intent,
+			"groma.dev/result": string(report.Result),
+			"groma.dev/run":    runName,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "  evidence published to %s\n", ref)
 	return nil
 }
 

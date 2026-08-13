@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,13 +19,16 @@ import (
 	policyapi "sigs.k8s.io/network-policy-api/pkg/client/clientset/versioned"
 
 	groma "github.com/groma-sh/groma/api/v1alpha1"
+	"github.com/groma-sh/groma/internal/adapters"
 	"github.com/groma-sh/groma/internal/analyzer"
 	"github.com/groma-sh/groma/internal/attest"
 	"github.com/groma-sh/groma/internal/evidence"
 	"github.com/groma-sh/groma/internal/intent"
+	"github.com/groma-sh/groma/internal/metrics"
 	"github.com/groma-sh/groma/internal/prober"
 	"github.com/groma-sh/groma/internal/reconcile"
 	reportpkg "github.com/groma-sh/groma/internal/report"
+	"github.com/groma-sh/groma/internal/sink"
 	"github.com/groma-sh/groma/internal/version"
 )
 
@@ -33,6 +37,7 @@ const (
 	conditionSound                    = "Sound"
 	conditionEnforcementMatchesConfig = "EnforcementMatchesConfig"
 	conditionAttestationSigned        = "AttestationSigned"
+	conditionEvidencePublished        = "EvidencePublished"
 )
 
 type ConformanceRunReconciler struct {
@@ -43,12 +48,22 @@ type ConformanceRunReconciler struct {
 
 	Clientset kubernetes.Interface
 
-	PolicyClient      policyapi.Interface
+	PolicyClient policyapi.Interface
+
+	// DynamicClient reads the CNI-native policy CRDs the adapters model, and
+	// CNIAdapters selects which of them to load ("auto", "none", or a list).
+	DynamicClient dynamic.Interface
+	CNIAdapters   string
+
 	EvidenceNamespace string
 
 	ClusterID string
 
 	NewSigner func(ctx context.Context, ep *groma.EvidencePolicy) (attest.Signer, error)
+
+	// NewSink builds the evidence sink a run asks for. Tests substitute it; in
+	// production it is sink.New.
+	NewSink func(ctx context.Context, es *groma.EvidenceSink) (sink.Sink, error)
 }
 
 func (r *ConformanceRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -80,6 +95,9 @@ func (r *ConformanceRunReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	var si groma.SegmentationIntent
 	if err := r.Get(ctx, client.ObjectKey{Name: run.Spec.IntentRef.Name}, &si); err != nil {
 		if apierrors.IsNotFound(err) {
+			// The intent is gone, so its gauges describe a thing that no longer
+			// exists; leaving them would keep an alert firing forever.
+			metrics.Forget(run.Spec.IntentRef.Name)
 			return r.fail(ctx, &run, "IntentNotFound", fmt.Sprintf("SegmentationIntent %q not found", run.Spec.IntentRef.Name))
 		}
 		return ctrl.Result{}, err
@@ -103,29 +121,36 @@ func (r *ConformanceRunReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return r.fail(ctx, &run, "PlanError", err.Error())
 	}
 	report.Zones = zones
-	report.Probes, err = r.collect(ctx, active, static, pr, checks)
+	report.Probes, err = r.collect(ctx, active, static, pr, checks, report)
 	if err != nil {
 		return r.fail(ctx, &run, "AnalyzeError", err.Error())
 	}
 	report.FinishedAt = time.Now().UTC()
 	report.Summarize()
 	reconcile.SetEnforcement(report)
+	metrics.ObserveRun(si.Name, report)
 
 	files, attestCond, err := r.buildEvidence(ctx, engineIntent, &run, report)
 	if err != nil {
 		return r.fail(ctx, &run, "AttestError", err.Error())
 	}
 
-	evidenceRef, err := writeEvidenceConfigMap(ctx, r.Client, r.Scheme, r.EvidenceNamespace, &run, report, files)
+	bundle, err := evidenceFiles(report, files)
+	if err != nil {
+		return r.fail(ctx, &run, "EvidenceError", err.Error())
+	}
+	evidenceRef, err := writeEvidenceConfigMap(ctx, r.Client, r.Scheme, r.EvidenceNamespace, &run, bundle)
 	if err != nil {
 		logger.Error(err, "failed to write evidence configmap", "run", run.Name)
 		return ctrl.Result{}, err
 	}
+	sinkRef, publishCond := r.publish(ctx, &run, report, bundle)
 
 	completion := metav1.Now()
 	run.Status.Phase = groma.PhaseCompleted
 	run.Status.Result = groma.Result(report.Result)
 	run.Status.EvidenceRef = evidenceRef
+	run.Status.EvidenceSinkRef = sinkRef
 	run.Status.CompletionTime = &completion
 	countResults(&run.Status, report.Probes)
 	meta.SetStatusCondition(&run.Status.Conditions, metav1.Condition{
@@ -136,6 +161,9 @@ func (r *ConformanceRunReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	setEnforcementCondition(&run.Status, report)
 	if attestCond != nil {
 		meta.SetStatusCondition(&run.Status.Conditions, *attestCond)
+	}
+	if publishCond != nil {
+		meta.SetStatusCondition(&run.Status.Conditions, *publishCond)
 	}
 
 	if err := ignoreConflict(r.Status().Update(ctx, &run)); err != nil {
@@ -186,20 +214,34 @@ func resolveModes(modes []groma.Mode) (active, static bool, err error) {
 	return active, static, nil
 }
 
-func (r *ConformanceRunReconciler) collect(ctx context.Context, active, static bool, pr *prober.Prober, checks []prober.Check) ([]evidence.Probe, error) {
+func (r *ConformanceRunReconciler) collect(ctx context.Context, active, static bool, pr *prober.Prober, checks []prober.Check, report *evidence.Report) ([]evidence.Probe, error) {
 	if !static {
 		return pr.ProbeChecks(ctx, checks), nil
 	}
-	an, err := analyzer.New(ctx, r.Clientset, r.PolicyClient)
+	// Adapters are loaded per run rather than cached, so a policy change between
+	// scheduled runs is picked up the same way a NetworkPolicy change is.
+	loaded, err := r.loadAdapters(ctx)
 	if err != nil {
 		return nil, err
 	}
+	an, err := analyzer.New(ctx, r.Clientset, r.PolicyClient, loaded...)
+	if err != nil {
+		return nil, err
+	}
+	report.CNIAdapters = an.Adapters()
 	cfg := an.Analyze(checks)
 	if !active {
 		return reconcile.StaticProbes(checks, cfg), nil
 	}
 	runtimeProbes := pr.ProbeChecks(ctx, checks)
 	return reconcile.Reconcile(checks, runtimeProbes, cfg), nil
+}
+
+func (r *ConformanceRunReconciler) loadAdapters(ctx context.Context) ([]adapters.Adapter, error) {
+	if r.DynamicClient == nil {
+		return nil, nil
+	}
+	return adapters.Load(ctx, r.DynamicClient, r.CNIAdapters)
 }
 
 func (r *ConformanceRunReconciler) buildEvidence(ctx context.Context, si *intent.SegmentationIntent, run *groma.ConformanceRun, report *evidence.Report) (map[string]string, *metav1.Condition, error) {
@@ -226,6 +268,7 @@ func (r *ConformanceRunReconciler) buildEvidence(ctx context.Context, si *intent
 	}
 
 	res, err := r.sign(ctx, ep, stmtBytes)
+	metrics.ObserveAttestation(err)
 	if err != nil {
 		return files, &metav1.Condition{
 			Type: conditionAttestationSigned, Status: metav1.ConditionFalse,
@@ -244,6 +287,65 @@ func (r *ConformanceRunReconciler) buildEvidence(ctx context.Context, si *intent
 		Type: conditionAttestationSigned, Status: metav1.ConditionTrue,
 		Reason: "Signed", Message: msg,
 	}, nil
+}
+
+// publish copies the evidence bundle to the configured sink. A publish failure
+// is reported as a condition and never fails the run: the conformance verdict
+// is already decided by this point, and throwing it away because a registry was
+// unreachable would lose the very evidence the sink exists to preserve.
+func (r *ConformanceRunReconciler) publish(ctx context.Context, run *groma.ConformanceRun, report *evidence.Report, bundle map[string]string) (string, *metav1.Condition) {
+	if run.Spec.Evidence == nil || run.Spec.Evidence.Sink == nil {
+		return "", nil
+	}
+	failed := func(reason, msg string) (string, *metav1.Condition) {
+		return "", &metav1.Condition{
+			Type: conditionEvidencePublished, Status: metav1.ConditionFalse,
+			Reason: reason, Message: msg,
+		}
+	}
+
+	newSink := r.NewSink
+	if newSink == nil {
+		newSink = defaultSink
+	}
+	s, err := newSink(ctx, run.Spec.Evidence.Sink)
+	if err != nil {
+		metrics.ObservePublish(run.Spec.Evidence.Sink.Type, err)
+		return failed("SinkConfigError", err.Error())
+	}
+
+	files := make(map[string][]byte, len(bundle))
+	for name, content := range bundle {
+		files[name] = []byte(content)
+	}
+	ref, err := s.Write(ctx, sink.Artifact{
+		Run:   run.Name,
+		Files: files,
+		Annotations: map[string]string{
+			"groma.dev/intent": report.Intent,
+			"groma.dev/result": string(report.Result),
+			"groma.dev/run":    run.Name,
+		},
+	})
+	metrics.ObservePublish(s.Name(), err)
+	if err != nil {
+		return failed("PublishError", err.Error())
+	}
+	return ref, &metav1.Condition{
+		Type: conditionEvidencePublished, Status: metav1.ConditionTrue,
+		Reason: "Published", Message: "evidence published to " + ref,
+	}
+}
+
+func defaultSink(ctx context.Context, es *groma.EvidenceSink) (sink.Sink, error) {
+	return sink.New(ctx, sink.Config{
+		Type:   es.Type,
+		Repo:   es.Repo,
+		Bucket: es.Bucket,
+		Prefix: es.Prefix,
+		Region: es.Region,
+		Path:   es.Path,
+	})
 }
 
 func (r *ConformanceRunReconciler) sign(ctx context.Context, ep *groma.EvidencePolicy, statement []byte) (*attest.SignResult, error) {

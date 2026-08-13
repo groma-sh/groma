@@ -95,3 +95,44 @@ func TestRenderHTMLShowsGap(t *testing.T) {
 		t.Errorf("enforcement gap wrongly reported as yes")
 	}
 }
+
+func TestRenderHTMLShowsUndecidedConfigAndAdapters(t *testing.T) {
+	start := time.Date(2026, 8, 3, 3, 0, 0, 0, time.UTC)
+	report := &evidence.Report{
+		Intent: "pci-cde-isolation", Mode: "active+static", CNIAdapters: []string{"cilium"},
+		StartedAt: start, FinishedAt: start.Add(time.Second), Result: evidence.Indeterminate,
+		Probes: []evidence.Probe{{
+			From: "out-of-scope", To: "cde", Protocol: "TCP", Port: 5432,
+			Assertion: string(intent.MustNotReach), Config: reconcile.ConfigUnknown,
+			ConfigSource: "cilium", ConfigReason: "CiliumNetworkPolicy cde/egress: unmodeled Cilium construct: toFQDNs",
+			ConfigPolicies: []string{"CiliumNetworkPolicy cde/egress"},
+			Observed:       "BLOCKED", PositiveControl: "REACHABLE", Result: evidence.Pass,
+		}},
+	}
+	si := &intent.SegmentationIntent{
+		APIVersion: "groma.dev/v1alpha1", Kind: "SegmentationIntent", Metadata: intent.Meta{Name: "pci-cde-isolation"},
+		Zones: []intent.Zone{
+			{Name: "out-of-scope", Namespace: "frontend"},
+			{Name: "cde", Namespace: "cde"},
+		},
+		Assertions: []intent.Assertion{{From: "out-of-scope", To: "cde", Type: intent.MustNotReach,
+			Ports: []intent.Port{{Protocol: intent.TCP, Port: 5432}}}},
+	}
+	stmt, err := attest.BuildStatement(report, si, attest.Meta{GromaVersion: "v0.2.0-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := RenderHTML(&buf, stmt); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"<dt>CNI adapters</dt><dd>cilium</dd>",
+		"<td>UNKNOWN</td>",
+		"config verdict from cilium: CiliumNetworkPolicy cde/egress: unmodeled Cilium construct: toFQDNs",
+	} {
+		if !bytes.Contains(buf.Bytes(), []byte(want)) {
+			t.Errorf("rendered HTML missing %q", want)
+		}
+	}
+}

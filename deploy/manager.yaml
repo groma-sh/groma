@@ -31,9 +31,16 @@ spec:
           args:
             - --evidence-namespace=groma-system
             - --health-probe-bind-address=:8081
+            - --metrics-bind-address=:8080
+            # CNI-native policy adapters used by static analysis: auto keeps the
+            # ones whose CRDs this cluster serves. Set "none" to disable, or a
+            # comma-separated list to pin them.
+            - --cni-adapters=auto
           ports:
             - name: healthz
               containerPort: 8081
+            - name: metrics
+              containerPort: 8080
           readinessProbe:
             httpGet:
               path: /readyz

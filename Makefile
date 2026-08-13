@@ -17,10 +17,13 @@ generate: controller-gen ## Regenerate api/v1alpha1 deepcopy methods.
 manifests: controller-gen ## Regenerate CRD YAML in config/crd/bases.
 	$(CONTROLLER_GEN) crd paths="./api/v1alpha1/..." output:crd:artifacts:config=config/crd/bases
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS ?= -X github.com/groma-sh/groma/internal/version.Version=$(VERSION)
+
 .PHONY: build
 build: ## Build the groma CLI and the controller-manager.
-	go build -o bin/groma ./cmd/groma
-	go build -o bin/groma-manager ./cmd/manager
+	go build -ldflags "$(LDFLAGS)" -o bin/groma ./cmd/groma
+	go build -ldflags "$(LDFLAGS)" -o bin/groma-manager ./cmd/manager
 
 .PHONY: test
 test:
@@ -28,4 +31,11 @@ test:
 
 .PHONY: docker-build-manager
 docker-build-manager: ## Build the controller-manager image (see Dockerfile.manager).
-	docker build -f Dockerfile.manager -t groma-manager:latest .
+	docker build -f Dockerfile.manager --build-arg VERSION=$(VERSION) -t groma-manager:$(VERSION) -t groma-manager:latest .
+
+.PHONY: fmt vet
+fmt: ## gofmt every package.
+	gofmt -w $(shell git ls-files '*.go')
+
+vet:
+	go vet ./...

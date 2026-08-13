@@ -23,9 +23,37 @@ type ProbeStrategy struct {
 	Retries             int32  `json:"retries,omitempty"`
 }
 
+// EvidenceSink publishes a run's evidence outside the cluster it audits, so the
+// artifact survives the namespace and cannot be rewritten by the cluster under
+// test. The bytes published are the same ones stored in the evidence ConfigMap,
+// so a signature verifies identically from either.
+type EvidenceSink struct {
+	// Type selects the backend.
+	// +kubebuilder:validation:Enum=oci;s3;gcs;file
+	Type string `json:"type"`
+	// Repo is the OCI repository, without a tag, for type "oci"
+	// (for example "registry.example.com/groma/evidence").
+	Repo string `json:"repo,omitempty"`
+	// Bucket is the object-storage bucket for types "s3" and "gcs".
+	Bucket string `json:"bucket,omitempty"`
+	// Prefix is the key prefix objects are written under; each run gets its own
+	// directory beneath it.
+	Prefix string `json:"prefix,omitempty"`
+	// Region is the AWS region for type "s3"; when empty the ambient AWS
+	// configuration supplies it.
+	Region string `json:"region,omitempty"`
+	// Path is the directory for type "file", typically a mounted volume.
+	Path string `json:"path,omitempty"`
+}
+
 type EvidencePolicy struct {
 	// How long to keep runs and evidence; empty keeps forever.
 	Retain string `json:"retain,omitempty"`
+	// Where to publish evidence in addition to the in-cluster ConfigMap. A
+	// failed publish never fails the run: the conformance result is already
+	// determined by then, and losing it to a registry outage would be worse
+	// than an unpublished artifact.
+	Sink *EvidenceSink `json:"sink,omitempty"`
 	// Enable in-toto attestation signing; when false, only statement and HTML are stored.
 	Sign bool `json:"sign,omitempty"`
 	// Sign via Sigstore (Fulcio + Rekor); when false, KeyRef must be set.

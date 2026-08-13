@@ -33,22 +33,28 @@ func evidenceConfigMapName(runName string) string {
 	return runName + "-evidence"
 }
 
-func writeEvidenceConfigMap(ctx context.Context, c client.Client, scheme *runtime.Scheme, ns string, run *groma.ConformanceRun, report *evidence.Report, extra map[string]string) (string, error) {
+// evidenceFiles assembles the run's evidence bundle. The ConfigMap and every
+// sink publish this exact map, so an artifact fetched from a registry verifies
+// against the same signature as the copy in the cluster.
+func evidenceFiles(report *evidence.Report, extra map[string]string) (map[string]string, error) {
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("marshal evidence: %w", err)
+		return nil, fmt.Errorf("marshal evidence: %w", err)
 	}
 	var summary strings.Builder
 	report.RenderText(&summary)
 
-	cmData := map[string]string{
+	files := map[string]string{
 		evidenceDataKey: string(data),
 		summaryDataKey:  summary.String(),
 	}
 	for k, v := range extra {
-		cmData[k] = v
+		files[k] = v
 	}
+	return files, nil
+}
 
+func writeEvidenceConfigMap(ctx context.Context, c client.Client, scheme *runtime.Scheme, ns string, run *groma.ConformanceRun, cmData map[string]string) (string, error) {
 	name := evidenceConfigMapName(run.Name)
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
