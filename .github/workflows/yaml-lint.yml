@@ -1,0 +1,26 @@
+name: yamllint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yamllint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: yamllint (deploy, examples, config)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ibiqlik/action-yamllint@2576378a8e339169678f9939646ee3ee325e845c # v3.1.1
+        with:
+          file_or_dir: deploy examples config
+          config_file: .yamllint.yml
