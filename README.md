@@ -3,6 +3,8 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/groma-sh/groma/actions/workflows/ci.yml"><img src="https://github.com/groma-sh/groma/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/groma-sh/groma/actions/workflows/e2e.yml"><img src="https://github.com/groma-sh/groma/actions/workflows/e2e.yml/badge.svg" alt="e2e"></a>
   <img src="https://img.shields.io/badge/status-alpha-E0A94A" alt="status: alpha">
   <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26">
   <img src="https://img.shields.io/badge/license-Apache--2.0-3DA639" alt="License: Apache-2.0">

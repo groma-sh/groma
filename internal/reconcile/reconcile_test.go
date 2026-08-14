@@ -30,7 +30,6 @@ func runtimeProbe(observed string, result evidence.Result) evidence.Probe {
 }
 
 func TestReconcile_EnforcementGap(t *testing.T) {
-
 	checks := []prober.Check{mustNotReachCheck()}
 	rt := []evidence.Probe{runtimeProbe("REACHABLE", evidence.Fail)}
 	cfg := []analyzer.ConfigResult{{Allows: false}}
@@ -44,7 +43,6 @@ func TestReconcile_EnforcementGap(t *testing.T) {
 }
 
 func TestReconcile_ConsistentDeniedAndBlocked(t *testing.T) {
-
 	checks := []prober.Check{mustNotReachCheck()}
 	rt := []evidence.Probe{runtimeProbe("BLOCKED", evidence.Pass)}
 	cfg := []analyzer.ConfigResult{{Allows: false}}
@@ -55,7 +53,6 @@ func TestReconcile_ConsistentDeniedAndBlocked(t *testing.T) {
 }
 
 func TestReconcile_ConfigDriftKeepsPass(t *testing.T) {
-
 	checks := []prober.Check{mustNotReachCheck()}
 	rt := []evidence.Probe{runtimeProbe("BLOCKED", evidence.Pass)}
 	cfg := []analyzer.ConfigResult{{Allows: true}}
@@ -69,7 +66,6 @@ func TestReconcile_ConfigDriftKeepsPass(t *testing.T) {
 }
 
 func TestReconcile_MustReachGapFails(t *testing.T) {
-
 	checks := []prober.Check{mustReachCheck()}
 	rt := []evidence.Probe{runtimeProbe("REACHABLE", evidence.Pass)}
 	cfg := []analyzer.ConfigResult{{Allows: false}}
@@ -119,7 +115,6 @@ func TestSetEnforcement(t *testing.T) {
 }
 
 func TestStaticProbes(t *testing.T) {
-
 	checks := []prober.Check{mustNotReachCheck(), mustNotReachCheck()}
 	cfg := []analyzer.ConfigResult{{Allows: false}, {Allows: true}}
 	got := StaticProbes(checks, cfg)

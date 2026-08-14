@@ -86,7 +86,6 @@ func TestAnalyze_AllowsInScope(t *testing.T) {
 }
 
 func TestAnalyze_NoPolicyAllowsAll(t *testing.T) {
-
 	a := newAnalyzer(t, ns("cde", nil), ns("out", nil))
 	out := ep("out-of-scope", "out", map[string]string{"app": "web"})
 	cde := ep("cde", "cde", map[string]string{"app": "payments"})
@@ -100,7 +99,6 @@ func TestAnalyze_NoPolicyAllowsAll(t *testing.T) {
 }
 
 func TestAnalyze_WrongPortDenied(t *testing.T) {
-
 	a := newAnalyzer(t,
 		ns("cde", map[string]string{"pci": "cde"}),
 		denyIngressExceptCDE(),

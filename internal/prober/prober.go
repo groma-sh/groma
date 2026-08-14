@@ -251,7 +251,7 @@ func (p *Prober) probeOne(ctx context.Context, c Check) evidence.Probe {
 	}
 
 	if reachable {
-		res.Observed = "REACHABLE"
+		res.Observed = evidence.Reachable
 		if c.ExpectReachable {
 			res.Result = evidence.Pass
 		} else {
@@ -261,7 +261,7 @@ func (p *Prober) probeOne(ctx context.Context, c Check) evidence.Probe {
 		return res
 	}
 
-	res.Observed = "BLOCKED"
+	res.Observed = evidence.Blocked
 	pc, err := p.probeFrom(ctx, c.To.Namespace, c.To.Labels, "control", ip, c.Port)
 	if err != nil {
 		res.Result = evidence.Error
@@ -269,9 +269,9 @@ func (p *Prober) probeOne(ctx context.Context, c Check) evidence.Probe {
 		return res
 	}
 	if pc {
-		res.PositiveControl = "REACHABLE"
+		res.PositiveControl = evidence.Reachable
 	} else {
-		res.PositiveControl = "BLOCKED"
+		res.PositiveControl = evidence.Blocked
 	}
 
 	switch {
@@ -400,6 +400,7 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
+//nolint:contextcheck // runs from a defer after the caller's context may already be canceled
 func (p *Prober) deletePod(ns, name string) {
 	grace := int64(0)
 	_ = p.client.CoreV1().Pods(ns).Delete(context.Background(), name, metav1.DeleteOptions{GracePeriodSeconds: &grace})

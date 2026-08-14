@@ -65,7 +65,6 @@ func TestFromCRDRejectsMatchExpressions(t *testing.T) {
 }
 
 func TestFromCRDInvalidPropagatesFromValidate(t *testing.T) {
-
 	crd := &groma.SegmentationIntent{
 		ObjectMeta: metav1.ObjectMeta{Name: "x"},
 		Spec: groma.SegmentationIntentSpec{

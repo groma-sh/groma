@@ -130,7 +130,6 @@ func TestConformanceRunReconcileIdempotent(t *testing.T) {
 }
 
 func TestConformanceRunStaticMode(t *testing.T) {
-
 	si := testIntent("pci-cde")
 	run := &groma.ConformanceRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "run-static"},
@@ -160,7 +159,6 @@ func TestConformanceRunStaticMode(t *testing.T) {
 }
 
 func TestConformanceRunReconciledConsistent(t *testing.T) {
-
 	si := testIntent("pci-cde")
 	run := &groma.ConformanceRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "run-both"},

@@ -72,7 +72,6 @@ func byPort(probes []evidence.Probe) map[int32]evidence.Probe {
 var mayReachOnly443 = intent.Assertion{From: "frontend", To: "cde", Type: intent.MayReachOnly, Ports: []intent.Port{{Protocol: intent.TCP, Port: 443}}}
 
 func TestMayReachOnly_ExpandsToAllowlistPlusCanary(t *testing.T) {
-
 	p := proberWithPolicy(func(string, map[string]string) bool { return true })
 	probes := runAll(t, p, mayReachOnly443)
 	if len(probes) != 2 {
@@ -88,7 +87,6 @@ func TestMayReachOnly_ExpandsToAllowlistPlusCanary(t *testing.T) {
 }
 
 func TestMayReachOnly_EnforcedAllowlistPortBlocked(t *testing.T) {
-
 	p := proberWithPolicy(func(ns string, _ map[string]string) bool { return ns == "cde" })
 	m := byPort(runAll(t, p, mayReachOnly443))
 	if m[443].Result != evidence.Fail {
@@ -102,7 +100,6 @@ func TestMayReachOnly_EnforcedAllowlistPortBlocked(t *testing.T) {
 var mustNotReach = intent.Assertion{From: "frontend", To: "cde", Type: intent.MustNotReach, Ports: []intent.Port{{Protocol: intent.TCP, Port: 5432}}}
 
 func TestMustNotReach_BlockedWithPositiveControl_Passes(t *testing.T) {
-
 	p := proberWithPolicy(func(ns string, _ map[string]string) bool { return ns == "cde" })
 	got := runOne(t, p, mustNotReach)
 	if got.Result != evidence.Pass {
@@ -114,7 +111,6 @@ func TestMustNotReach_BlockedWithPositiveControl_Passes(t *testing.T) {
 }
 
 func TestMustNotReach_Reachable_Fails(t *testing.T) {
-
 	p := proberWithPolicy(func(string, map[string]string) bool { return true })
 	got := runOne(t, p, mustNotReach)
 	if got.Result != evidence.Fail || got.Observed != "REACHABLE" {
@@ -123,7 +119,6 @@ func TestMustNotReach_Reachable_Fails(t *testing.T) {
 }
 
 func TestMustNotReach_PositiveControlFails_Indeterminate(t *testing.T) {
-
 	p := proberWithPolicy(func(string, map[string]string) bool { return false })
 	got := runOne(t, p, mustNotReach)
 	if got.Result != evidence.Indeterminate || got.PositiveControl != "BLOCKED" {
@@ -132,7 +127,6 @@ func TestMustNotReach_PositiveControlFails_Indeterminate(t *testing.T) {
 }
 
 func TestMustReach_RequiredPathBlockedByPolicy_Fails(t *testing.T) {
-
 	p := proberWithPolicy(func(ns string, _ map[string]string) bool { return ns == "cde" })
 	a := mustNotReach
 	a.Type = intent.MustReach

@@ -19,6 +19,18 @@ const (
 	Skipped       Result = "SKIPPED"
 )
 
+// Observed and PositiveControl carry what the runtime probe actually saw.
+const (
+	Reachable = "REACHABLE"
+	Blocked   = "BLOCKED"
+)
+
+// Config carries what static analysis of the policy says should happen.
+const (
+	Allowed = "ALLOWED"
+	Denied  = "DENIED"
+)
+
 type Probe struct {
 	From            string `json:"from"`
 	To              string `json:"to"`
@@ -112,7 +124,7 @@ func (r *Report) RenderText(w io.Writer) {
 		fmt.Fprintf(tw, "  %s\t%s -> %s\t%s\ttcp/%d\t%s\t%s\t%s\n",
 			p.Result, p.From, p.To, p.Assertion, p.Port, dash(p.Config), dash(p.Observed), dash(p.Reconciliation))
 	}
-	tw.Flush()
+	_ = tw.Flush()
 
 	fmt.Fprintf(w, "  %d passed, %d failed, %d indeterminate, %d error",
 		counts[Pass], counts[Fail], counts[Indeterminate], counts[Error])

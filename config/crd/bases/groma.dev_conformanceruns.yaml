@@ -29,10 +29,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: |-
-          ConformanceRun is a single execution of a SegmentationIntent's assertions,
-          created ad hoc or by a ConformanceSchedule. It is run-once: once
-          status.phase reaches Completed or Failed, the controller never re-runs it.
+        description: A single execution of an intent's assertions, run once.
         properties:
           apiVersion:
             description: |-
@@ -54,33 +51,23 @@ spec:
           spec:
             properties:
               evidence:
-                description: |-
-                  Evidence controls signing of this run's attestation. Like ProbeStrategy it
-                  is copied down from the schedule so the run is self-contained; the Retain
-                  field is ignored here (retention is a schedule-level concern).
+                description: Attestation signing; copied from the schedule, Retain
+                  ignored here.
                 properties:
                   keyRef:
-                    description: |-
-                      KeyRef is a cosign key reference used when Keyless is false: a KMS URI
-                      (awskms://, gcpkms://, azurekms://, hashivault://) or an in-cluster secret
-                      ("k8s://namespace/secret").
+                    description: Cosign key reference (KMS URI or in-cluster secret)
+                      when not Keyless.
                     type: string
                   keyless:
-                    description: |-
-                      Keyless selects Sigstore keyless signing (Fulcio + Rekor over the manager's
-                      ambient OIDC/workload identity). When false, KeyRef must be set.
+                    description: Sign via Sigstore (Fulcio + Rekor); when false, KeyRef
+                      must be set.
                     type: boolean
                   retain:
-                    description: |-
-                      Retain is how long to keep Completed/Failed ConformanceRuns (and their
-                      evidence ConfigMaps) before the schedule prunes them, e.g. "720h" or the
-                      day-suffixed "400d". Empty means keep forever.
+                    description: How long to keep runs and evidence; empty keeps forever.
                     type: string
                   sign:
-                    description: |-
-                      Sign turns on signing of the in-toto attestation. When false the run still
-                      stores the unsigned statement and HTML report; only attestation.json is
-                      omitted.
+                    description: Enable in-toto attestation signing; when false, only
+                      statement and HTML are stored.
                     type: boolean
                 type: object
               intentRef:
@@ -94,19 +81,13 @@ spec:
                 description: Mode defaults to ["active"] when empty. List both to
                   reconcile config vs runtime.
                 items:
-                  description: |-
-                    Mode selects which conformance signal(s) a run collects: "active" runs the
-                    runtime prober, "static" runs the policy analyzer, and listing both runs each
-                    and reconciles config against runtime. An empty list defaults to ["active"].
+                  description: 'Mode: "active" (probe), "static" (analyze), or both
+                    (reconcile). Empty defaults to ["active"].'
                   type: string
                 type: array
               probeStrategy:
-                description: |-
-                  ProbeStrategy overrides prober defaults for this run. A ConformanceRun
-                  created by a ConformanceSchedule carries the schedule's ProbeStrategy
-                  here; this is a deliberate addition beyond the plan.md sketch (which
-                  leaves it only on the Schedule) so a run's behavior is fully determined
-                  by its own spec, without needing to chase a possibly-deleted owner.
+                description: Carries the schedule's strategy down to the run so it
+                  is self-contained.
                 properties:
                   image:
                     type: string
@@ -135,11 +116,8 @@ spec:
                 format: date-time
                 type: string
               conditions:
-                description: |-
-                  Conditions carries "Complete", "Sound", and - for runs that reconciled
-                  both signals (mode active+static) - "EnforcementMatchesConfig", which is
-                  False when runtime enforcement disagreed with the policy configuration on
-                  any path (the enforcement gap of plan.md section 8.3).
+                description: '"Complete", "Sound", and "EnforcementMatchesConfig"
+                  (False = enforcement gap).'
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -196,9 +174,8 @@ spec:
                   type: object
                 type: array
               evidenceRef:
-                description: |-
-                  EvidenceRef is the name of the ConfigMap (in the manager's namespace)
-                  holding the full JSON evidence report.
+                description: ConfigMap (in the manager's namespace) holding the full
+                  JSON evidence report.
                 type: string
               phase:
                 type: string

@@ -6,18 +6,215 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-test:
+  lint:
+    name: golangci-lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26'
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+          args: --timeout=10m
 
-      - name: Build
-        run: go build ./...
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: reviewdog/action-actionlint@d63ba7532e0942965320cd8d73cbae4c7b3c5283 # v1.73.1
+        with:
+          reporter: github-check
+          fail_level: error
 
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
+        env:
+          SHELLCHECK_OPTS: -e SC1091
+
+  verify-generated:
+    name: verify generated (CRDs, deepcopy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make generate manifests
+      - name: Fail if regeneration produced a diff
+        run: |
+          if ! git diff --exit-code -- api/ config/; then
+            echo "::error::generated files are stale - run 'make generate manifests' and commit the result"
+            exit 1
+          fi
+
+  verify-tidy:
+    name: verify go.mod tidy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go mod tidy
+      - name: Fail if go.mod/go.sum changed
+        run: |
+          if ! git diff --exit-code -- go.mod go.sum; then
+            echo "::error::go.mod/go.sum are not tidy - run 'go mod tidy' and commit the result"
+            exit 1
+          fi
+      - run: go mod verify
+
+  build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build CLI and manager
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          go build ./...
+          go build -o /dev/null ./cmd/groma
+          go build -o /dev/null ./cmd/manager
+
+  test:
+    name: unit tests (race)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
       - name: Test
-        run: go test ./...
+        run: go test -race -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -30
+      - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: coverage.out
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  test-go-matrix:
+    name: unit tests (go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.26', 'stable']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
+      - run: go test ./...
+
+  smoke-cli:
+    name: smoke (CLI contract)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go build -o groma ./cmd/groma
+      - name: Missing --intent must exit 2 (usage), not 1 (policy failure)
+        run: |
+          set +e
+          ./groma >/dev/null 2>&1; code=$?
+          set -e
+          [ "$code" = "2" ] || { echo "::error::expected usage exit 2, got $code"; exit 1; }
+      - name: Invalid --mode must exit 2
+        run: |
+          set +e
+          ./groma --intent examples/intent.yaml --mode bogus >/dev/null 2>&1; code=$?
+          set -e
+          [ "$code" = "2" ] || { echo "::error::expected usage exit 2, got $code"; exit 1; }
+      - name: --help must succeed
+        run: ./groma --help
+
+  docker:
+    name: docker build (manager)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      # amd64 only: this is a per-PR smoke check that the Dockerfile still
+      # builds, not a release artifact. arm64 correctness is already proven
+      # natively by the build/linux-arm64 job above (no QEMU); the emulated
+      # arm64 compile of this dependency closure took 11+ minutes and was
+      # still running when it got killed. Multi-arch images are built for
+      # real at release time in release.yml, where the extra minutes are fine.
+      - name: Build manager image (linux/amd64)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.manager
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  verify-manifests:
+    name: verify deploy manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          cluster_name: groma-manifests
+          node_image: kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
+      - name: Apply CRDs
+        run: kubectl apply -f config/crd/bases/
+      # Real apply, not --dry-run=server: rbac.yaml creates the groma-system
+      # Namespace and manager.yaml's ServiceAccount lives in it. Server-side
+      # dry-run does not persist the Namespace it just "created", so the next
+      # object in the same file fails NotFound.
+      - name: Apply deploy manifests
+        run: |
+          kubectl apply -f deploy/rbac.yaml
+          kubectl apply -f deploy/manager.yaml
+      - name: Example CRs must validate against the CRD schemas
+        run: |
+          kubectl apply --dry-run=server -f examples/schedule.yaml

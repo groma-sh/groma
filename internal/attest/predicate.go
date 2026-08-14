@@ -152,10 +152,10 @@ func methodsFor(mode string) []string {
 
 func configAllows(s string) *bool {
 	switch s {
-	case "ALLOWED":
+	case evidence.Allowed:
 		t := true
 		return &t
-	case "DENIED":
+	case evidence.Denied:
 		f := false
 		return &f
 	}

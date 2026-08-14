@@ -1,0 +1,394 @@
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      full_matrix:
+        description: Run the full CNI x Kubernetes matrix
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      full_matrix:
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # PRs get a fast two-leg matrix (Flannel, Calico). Nightly and manual runs
+  # get the full grid.
+  matrix:
+    name: compute matrix
+    runs-on: ubuntu-latest
+    outputs:
+      legs: ${{ steps.set.outputs.legs }}
+    steps:
+      - id: set
+        env:
+          FULL: ${{ inputs.full_matrix || github.event_name == 'schedule' }}
+        run: |
+          fast='[
+            {"cni":"flannel","k8s":"v1.36.1","node":"kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5","expect_exit":1,"expect_result":"FAIL"},
+            {"cni":"calico","k8s":"v1.36.1","node":"kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5","expect_exit":0,"expect_result":"PASS"}
+          ]'
+          full='[
+            {"cni":"flannel","k8s":"v1.36.1","node":"kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5","expect_exit":1,"expect_result":"FAIL"},
+            {"cni":"flannel","k8s":"v1.34.8","node":"kindest/node:v1.34.8@sha256:02722c2dedddcfc00febf5d27fbeb9b7b2c14294c82109ff4a85d89ac9ba3256","expect_exit":1,"expect_result":"FAIL"},
+            {"cni":"calico","k8s":"v1.36.1","node":"kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5","expect_exit":0,"expect_result":"PASS"},
+            {"cni":"calico","k8s":"v1.35.5","node":"kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95","expect_exit":0,"expect_result":"PASS"},
+            {"cni":"calico","k8s":"v1.33.12","node":"kindest/node:v1.33.12@sha256:3f5c8443c620245e4d355cfe09e96a91ead32ceaa569d3f1ca9edf0cb2fe2ff4","expect_exit":0,"expect_result":"PASS"},
+            {"cni":"cilium","k8s":"v1.36.1","node":"kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5","expect_exit":0,"expect_result":"PASS"}
+          ]'
+          if [ "$FULL" = "true" ]; then legs="$full"; else legs="$fast"; fi
+          echo "legs=$(echo "$legs" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+  cli:
+    name: cli ${{ matrix.leg.cni }} k8s ${{ matrix.leg.k8s }}
+    needs: matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: ${{ fromJSON(needs.matrix.outputs.legs) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - run: go build -o groma ./cmd/groma
+
+      - name: Load br_netfilter
+        if: matrix.leg.cni == 'flannel'
+        run: |
+          sudo modprobe br_netfilter
+          sudo sysctl -w net.bridge.bridge-nf-call-iptables=1
+
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          # kind-action defaults to v0.31.0, whose `kind load docker-image`
+          # cannot parse the containerd config format in kindest/node:v1.36.1.
+          version: v0.32.0
+          cluster_name: groma-e2e
+          node_image: ${{ matrix.leg.node }}
+          config: ${{ matrix.leg.cni == 'flannel' && '.github/kind/flannel.yaml' || '.github/kind/no-default-cni.yaml' }}
+
+      # flannel's own manifest only installs the "flannel" CNI binary; its CNI
+      # config delegates to the standard "bridge" plugin for the actual
+      # interface setup, which this node image does not pre-bundle.
+      - name: Install standard CNI plugins
+        if: matrix.leg.cni == 'flannel'
+        run: |
+          docker exec groma-e2e-control-plane sh -c \
+            "curl -sSL https://github.com/containernetworking/plugins/releases/download/v1.9.1/cni-plugins-linux-amd64-v1.9.1.tgz | tar -C /opt/cni/bin -xz"
+
+      - name: Install Flannel
+        if: matrix.leg.cni == 'flannel'
+        run: |
+          kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/v0.28.9/Documentation/kube-flannel.yml
+          kubectl -n kube-flannel rollout status daemonset/kube-flannel-ds --timeout=2m || {
+            kubectl -n kube-flannel get pods -o wide
+            kubectl -n kube-flannel logs -l app=flannel --all-containers --tail=200
+            exit 1
+          }
+
+      - name: Install Calico
+        if: matrix.leg.cni == 'calico'
+        run: |
+          kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/calico.yaml
+          kubectl -n kube-system rollout status daemonset/calico-node --timeout=5m
+          kubectl -n kube-system rollout status deployment/calico-kube-controllers --timeout=5m
+
+      - name: Install Cilium
+        if: matrix.leg.cni == 'cilium'
+        run: |
+          CILIUM_CLI_VERSION=v0.19.7
+          curl -sSL --fail -o cilium.tar.gz \
+            "https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-amd64.tar.gz"
+          tar xzf cilium.tar.gz
+          ./cilium install --version 1.20.0 --wait
+          ./cilium status --wait
+
+      - name: Wait for nodes Ready
+        run: kubectl wait --for=condition=Ready nodes --all --timeout=5m
+
+      # Node Ready and the CNI's own DaemonSet Ready don't guarantee new pod
+      # sandboxes actually get IPs promptly yet. CoreDNS coming up is the real
+      # signal that pod networking is functional end to end.
+      - name: Wait for CoreDNS Ready
+        run: |
+          kubectl -n kube-system rollout status deployment/coredns --timeout=3m || {
+            kubectl -n kube-system get pods -o wide
+            kubectl -n kube-system describe pods -l k8s-app=kube-dns
+            kubectl -n kube-system logs -l k8s-app=kube-dns --all-containers --tail=200 || true
+            exit 1
+          }
+
+      # Groma's prober only budgets 60s for a probe pod to get an IP; do not
+      # let part of that go to pulling the probe image over the network.
+      - name: Pre-pull the probe image onto the kind node
+        run: |
+          docker pull busybox:1.36
+          kind load docker-image busybox:1.36 --name groma-e2e
+
+      - name: Apply the demo workload namespaces and NetworkPolicy
+        run: |
+          kubectl apply -f examples/demo/namespaces.yaml
+          kubectl apply -f examples/demo/policy.yaml
+
+      # --dry-run still resolves zones against the API server, so this sweep
+      # lives here. intent-mayreachonly.yaml is excluded: it targets its own
+      # zone labels (tier=dmz, pci-scope=cde), not this fixture's namespaces.
+      - name: --dry-run sweep over every example intent
+        run: |
+          set -euo pipefail
+          for f in examples/intent.yaml examples/intent-selector.yaml; do
+            echo "::group::dry-run $f"
+            ./groma --intent "$f" --dry-run
+            echo "::endgroup::"
+          done
+          count=$(kubectl get pods -A -l app.kubernetes.io/managed-by=groma --no-headers 2>/dev/null | wc -l)
+          [ "$count" -eq 0 ] || { echo "::error::--dry-run created $count probe pods"; exit 1; }
+
+      - name: groma --mode both (the real run)
+        id: run
+        run: |
+          set +e
+          ./groma \
+            --intent examples/intent.yaml \
+            --mode both \
+            --output evidence.json \
+            --html report.html \
+            --statement statement.json \
+            --cluster-id "kind-groma-e2e" \
+            --cni "${{ matrix.leg.cni }}"
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Assert exit code matches the CNI's enforcement behaviour
+        env:
+          GOT: ${{ steps.run.outputs.exit_code }}
+          WANT: ${{ matrix.leg.expect_exit }}
+        run: |
+          if [ "$GOT" != "$WANT" ]; then
+            echo "::error::${{ matrix.leg.cni }}: expected exit $WANT, got $GOT"
+            exit 1
+          fi
+
+      - name: Assert the evidence report
+        env:
+          WANT_RESULT: ${{ matrix.leg.expect_result }}
+          CNI: ${{ matrix.leg.cni }}
+        run: |
+          set -euo pipefail
+          jq . evidence.json > /dev/null
+
+          got=$(jq -r '.result' evidence.json)
+          [ "$got" = "$WANT_RESULT" ] || { echo "::error::report.result=$got want=$WANT_RESULT"; exit 1; }
+
+          [ "$(jq -r '.intent' evidence.json)" = "pci-cde" ]
+          [ "$(jq -r '.framework' evidence.json)" = "PCI-DSS-4.0" ]
+          jq -e '.controls | index("11.4.5")' evidence.json > /dev/null
+
+          if jq -e '[.probes[] | select(.result=="ERROR")] | length > 0' evidence.json > /dev/null; then
+            echo "::error::probe(s) errored"; jq '.probes' evidence.json; exit 1
+          fi
+
+          gap=$(jq -r '.probes[] | select(.from=="frontend" and .to=="cde") | .reconciliation' evidence.json)
+          case "$CNI" in
+            flannel)
+              [ "$gap" = "ENFORCEMENT-GAP" ] || { echo "::error::expected ENFORCEMENT-GAP, got '$gap'"; jq '.probes' evidence.json; exit 1; }
+              [ "$(jq -r '.enforcementMatchesConfig' evidence.json)" = "false" ] || { echo "::error::enforcementMatchesConfig should be false"; exit 1; }
+              ;;
+            *)
+              [ "$gap" = "CONSISTENT" ] || { echo "::error::expected CONSISTENT, got '$gap'"; jq '.probes' evidence.json; exit 1; }
+              [ "$(jq -r '.enforcementMatchesConfig' evidence.json)" = "true" ] || { echo "::error::enforcementMatchesConfig should be true"; exit 1; }
+              ;;
+          esac
+
+      - name: Assert the HTML report and in-toto statement
+        run: |
+          set -euo pipefail
+          test -s report.html
+          grep -q "pci-cde" report.html
+          jq -e '._type == "https://in-toto.io/Statement/v1"' statement.json > /dev/null
+          jq -e '.predicateType' statement.json > /dev/null
+
+      - name: Assert no probe pods leaked
+        run: |
+          leftover=$(kubectl get pods -A -l app.kubernetes.io/managed-by=groma --no-headers 2>/dev/null | wc -l)
+          if [ "$leftover" -ne 0 ]; then
+            echo "::error::$leftover groma probe pod(s) left behind"
+            kubectl get pods -A -l app.kubernetes.io/managed-by=groma
+            exit 1
+          fi
+
+      - name: Each mode must run standalone
+        run: |
+          set +e
+          ./groma --intent examples/intent.yaml --mode static --output static.json; echo "static exit=$?"
+          ./groma --intent examples/intent.yaml --mode active --output active.json; echo "active exit=$?"
+          set -e
+          jq -e '.mode' static.json > /dev/null
+          jq -e '.mode' active.json > /dev/null
+
+      - name: Collect cluster diagnostics
+        if: failure()
+        run: |
+          kubectl get nodes -o wide || true
+          kubectl get pods -A -o wide || true
+          kubectl get networkpolicies -A -o yaml || true
+          kubectl describe pods -A -l app.kubernetes.io/managed-by=groma || true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: evidence-${{ matrix.leg.cni }}-${{ matrix.leg.k8s }}
+          path: |
+            evidence.json
+            statement.json
+            report.html
+            static.json
+            active.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  manager:
+    name: controller-manager e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Load br_netfilter
+        run: |
+          sudo modprobe br_netfilter
+          sudo sysctl -w net.bridge.bridge-nf-call-iptables=1
+
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          version: v0.32.0
+          cluster_name: groma-manager-e2e
+          node_image: kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
+          config: .github/kind/flannel.yaml
+
+      - name: Install standard CNI plugins
+        run: |
+          docker exec groma-manager-e2e-control-plane sh -c \
+            "curl -sSL https://github.com/containernetworking/plugins/releases/download/v1.9.1/cni-plugins-linux-amd64-v1.9.1.tgz | tar -C /opt/cni/bin -xz"
+
+      - name: Install Flannel
+        run: |
+          kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/v0.28.9/Documentation/kube-flannel.yml
+          kubectl -n kube-flannel rollout status daemonset/kube-flannel-ds --timeout=2m || {
+            kubectl -n kube-flannel get pods -o wide
+            kubectl -n kube-flannel logs -l app=flannel --all-containers --tail=200
+            exit 1
+          }
+          kubectl wait --for=condition=Ready nodes --all --timeout=5m
+          kubectl -n kube-system rollout status deployment/coredns --timeout=3m || {
+            kubectl -n kube-system get pods -o wide
+            kubectl -n kube-system describe pods -l k8s-app=kube-dns
+            kubectl -n kube-system logs -l k8s-app=kube-dns --all-containers --tail=200 || true
+            exit 1
+          }
+
+      - name: Pre-pull the probe image onto the kind node
+        run: |
+          docker pull busybox:1.36
+          kind load docker-image busybox:1.36 --name groma-manager-e2e
+
+      - name: Build and load the manager image
+        run: |
+          docker build -f Dockerfile.manager -t groma-manager:e2e .
+          kind load docker-image groma-manager:e2e --name groma-manager-e2e
+
+      - name: Install CRDs, RBAC and the manager
+        run: |
+          kubectl apply -f config/crd/bases/
+          kubectl apply -f deploy/rbac.yaml
+          sed 's|image: groma-manager:latest|image: groma-manager:e2e|' deploy/manager.yaml | kubectl apply -f -
+          kubectl -n groma-system rollout status deployment/groma-manager --timeout=5m
+
+      - name: Apply demo workloads and the intent
+        run: |
+          kubectl apply -f examples/demo/namespaces.yaml
+          kubectl apply -f examples/demo/policy.yaml
+          kubectl apply -f examples/schedule.yaml
+
+      - name: Create a ConformanceRun and wait for it to complete
+        run: |
+          set -euo pipefail
+          cat <<'EOR' | kubectl apply -f -
+          apiVersion: groma.dev/v1alpha1
+          kind: ConformanceRun
+          metadata:
+            name: e2e-run
+          spec:
+            intentRef:
+              name: pci-cde
+            mode: ["active"]
+          EOR
+          for i in $(seq 1 60); do
+            phase=$(kubectl get conformancerun e2e-run -o jsonpath='{.status.phase}' 2>/dev/null || true)
+            echo "attempt $i: phase=${phase:-<none>}"
+            case "$phase" in
+              Completed|Failed) break ;;
+            esac
+            sleep 5
+          done
+          kubectl get conformancerun e2e-run -o yaml
+
+      - name: Assert the run reconciled into evidence
+        run: |
+          set -euo pipefail
+          phase=$(kubectl get conformancerun e2e-run -o jsonpath='{.status.phase}')
+          [ "$phase" = "Completed" ] || { echo "::error::run phase=$phase"; exit 1; }
+
+          result=$(kubectl get conformancerun e2e-run -o jsonpath='{.status.result}')
+          [ "$result" = "FAIL" ] || { echo "::error::expected FAIL, got $result"; exit 1; }
+
+          ref=$(kubectl get conformancerun e2e-run -o jsonpath='{.status.evidenceRef}')
+          [ -n "$ref" ] || { echo "::error::status.evidenceRef is empty"; exit 1; }
+
+          kubectl -n groma-system get configmap "$ref" -o jsonpath='{.data.evidence\.json}' | jq -e '.probes | length > 0' > /dev/null
+          kubectl -n groma-system get configmap "$ref" -o jsonpath='{.data.summary\.txt}' | grep -q "Groma segmentation conformance"
+
+      - name: Assert evidence is garbage-collected with its run
+        run: |
+          set -euo pipefail
+          ref=$(kubectl get conformancerun e2e-run -o jsonpath='{.status.evidenceRef}')
+          kubectl delete conformancerun e2e-run --wait=true
+          for i in $(seq 1 24); do
+            if ! kubectl -n groma-system get configmap "$ref" >/dev/null 2>&1; then
+              echo "evidence configmap garbage-collected"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::evidence configmap $ref outlived its ConformanceRun"
+          exit 1
+
+      - name: Manager logs
+        if: always()
+        run: kubectl -n groma-system logs deployment/groma-manager --tail=200 || true
+
+      - name: Cluster diagnostics
+        if: failure()
+        run: |
+          kubectl get conformanceruns,conformanceschedules,segmentationintents -A -o yaml || true
+          kubectl -n groma-system get configmaps || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -50 || true
