@@ -1,0 +1,16 @@
+name: DCO
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  check:
+    name: sign-off check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: KineticCafe/actions-dco@5f160e3ee086af8fc0fb567b8add0937d074123e # v3.2.0
