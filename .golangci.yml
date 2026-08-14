@@ -1,0 +1,96 @@
+version: "2"
+
+run:
+  timeout: 10m
+  tests: true
+
+linters:
+  default: standard   # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - contextcheck
+    - errorlint
+    - nilerr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - gosec
+    - copyloopvar
+    - dupword
+    - goconst
+    - misspell
+    - nakedret
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      exclude-functions:
+        - (io.Closer).Close
+    goconst:
+      min-occurrences: 4
+      ignore-tests: true
+      numbers: false
+    gosec:
+      excludes:
+        # File paths here come from the operator's own flags, not from user
+        # input over the network.
+        - G304
+        # Evidence, statements and attestations are written 0644 on purpose:
+        # they are audit artifacts meant to be read and shared, and the
+        # signature material they carry is public by design.
+        - G306
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+    staticcheck:
+      checks: ["all"]
+    misspell:
+      locale: US
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - dupword
+          - errcheck
+          - goconst
+          - gosec
+          - unparam
+      - path: zz_generated\..*\.go
+        linters:
+          - dupl
+          - revive
+          - staticcheck
+      # scheme.Builder is deprecated upstream but is what controller-gen scaffolds.
+      - path: api/v1alpha1/groupversion_info\.go
+        text: 'SA1019: scheme.Builder is deprecated'
+        linters:
+          - staticcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/groma-sh/groma
+  exclusions:
+    generated: lax
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

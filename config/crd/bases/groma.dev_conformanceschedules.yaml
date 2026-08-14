@@ -29,9 +29,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: |-
-          ConformanceSchedule runs a SegmentationIntent on a cron schedule, creating a
-          ConformanceRun each tick and pruning old runs per its evidence policy.
+        description: Runs a SegmentationIntent on a cron schedule, creating a ConformanceRun
+          per tick.
         properties:
           apiVersion:
             description: |-
@@ -55,27 +54,19 @@ spec:
               evidence:
                 properties:
                   keyRef:
-                    description: |-
-                      KeyRef is a cosign key reference used when Keyless is false: a KMS URI
-                      (awskms://, gcpkms://, azurekms://, hashivault://) or an in-cluster secret
-                      ("k8s://namespace/secret").
+                    description: Cosign key reference (KMS URI or in-cluster secret)
+                      when not Keyless.
                     type: string
                   keyless:
-                    description: |-
-                      Keyless selects Sigstore keyless signing (Fulcio + Rekor over the manager's
-                      ambient OIDC/workload identity). When false, KeyRef must be set.
+                    description: Sign via Sigstore (Fulcio + Rekor); when false, KeyRef
+                      must be set.
                     type: boolean
                   retain:
-                    description: |-
-                      Retain is how long to keep Completed/Failed ConformanceRuns (and their
-                      evidence ConfigMaps) before the schedule prunes them, e.g. "720h" or the
-                      day-suffixed "400d". Empty means keep forever.
+                    description: How long to keep runs and evidence; empty keeps forever.
                     type: string
                   sign:
-                    description: |-
-                      Sign turns on signing of the in-toto attestation. When false the run still
-                      stores the unsigned statement and HTML report; only attestation.json is
-                      omitted.
+                    description: Enable in-toto attestation signing; when false, only
+                      statement and HTML are stored.
                     type: boolean
                 type: object
               intentRef:
@@ -89,16 +80,12 @@ spec:
                 description: Mode defaults to ["active"] when empty. List both to
                   reconcile config vs runtime.
                 items:
-                  description: |-
-                    Mode selects which conformance signal(s) a run collects: "active" runs the
-                    runtime prober, "static" runs the policy analyzer, and listing both runs each
-                    and reconciles config against runtime. An empty list defaults to ["active"].
+                  description: 'Mode: "active" (probe), "static" (analyze), or both
+                    (reconcile). Empty defaults to ["active"].'
                   type: string
                 type: array
               probeStrategy:
-                description: |-
-                  ProbeStrategy maps 1:1 onto the existing internal/prober.Options - no new
-                  engine surface, just exposing what the CLI already accepts as flags.
+                description: ProbeStrategy mirrors internal/prober.Options.
                 properties:
                   image:
                     type: string
@@ -110,7 +97,7 @@ spec:
                     type: integer
                 type: object
               schedule:
-                description: Schedule is a standard 5-field cron expression.
+                description: Standard 5-field cron expression.
                 type: string
             required:
             - intentRef

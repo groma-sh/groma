@@ -1,0 +1,4 @@
+# Format: GO-YYYY-NNNN: reason (review by: YYYY-MM-DD)
+
+GO-2026-4529: cosign v2 Sign-only usage; verification bypass not exercised, no v2 fix exists (review by: 2027-02-01)
+GO-2026-5932: golang.org/x/crypto/openpgp is permanently unfixed upstream; reached only via cosign v2's internal Rekor upload path (review by: 2027-02-01)

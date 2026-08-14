@@ -203,7 +203,7 @@ func (r *ConformanceRunReconciler) collect(ctx context.Context, active, static b
 }
 
 func (r *ConformanceRunReconciler) buildEvidence(ctx context.Context, si *intent.SegmentationIntent, run *groma.ConformanceRun, report *evidence.Report) (map[string]string, *metav1.Condition, error) {
-	stmt, err := attest.BuildStatement(report, si, attest.Meta{GromaVersion: version.Version, ClusterID: r.ClusterID})
+	stmt, err := attest.BuildStatement(report, si, attest.Meta{GromaVersion: version.Get(), ClusterID: r.ClusterID})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -227,6 +227,7 @@ func (r *ConformanceRunReconciler) buildEvidence(ctx context.Context, si *intent
 
 	res, err := r.sign(ctx, ep, stmtBytes)
 	if err != nil {
+		//nolint:nilerr // signing failure degrades the run via AttestationSigned=False, doesn't fail it
 		return files, &metav1.Condition{
 			Type: conditionAttestationSigned, Status: metav1.ConditionFalse,
 			Reason: "SignError", Message: err.Error(),

@@ -47,7 +47,6 @@ func Reconcile(checks []prober.Check, runtime []evidence.Probe, cfg []analyzer.C
 		p := runtime[i]
 		r := cfg[i]
 		if r.Err != nil {
-
 			p.Detail = appendDetail(p.Detail, "static analysis error: "+r.Err.Error())
 			out[i] = p
 			continue
@@ -60,7 +59,7 @@ func Reconcile(checks []prober.Check, runtime []evidence.Probe, cfg []analyzer.C
 			continue
 		}
 
-		reachable := p.Observed == "REACHABLE"
+		reachable := p.Observed == evidence.Reachable
 		switch {
 		case reachable == r.Allows:
 			p.Reconciliation = CellConsistent
@@ -111,9 +110,9 @@ func SetEnforcement(report *evidence.Report) {
 
 func configString(allows bool) string {
 	if allows {
-		return "ALLOWED"
+		return evidence.Allowed
 	}
-	return "DENIED"
+	return evidence.Denied
 }
 
 func appendDetail(existing, add string) string {

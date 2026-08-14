@@ -72,7 +72,6 @@ func (r *ConformanceScheduleReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	if err := r.pruneOldRuns(ctx, &sched, now); err != nil {
-
 		logger.Error(err, "failed to prune old runs", "schedule", sched.Name)
 	}
 

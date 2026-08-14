@@ -53,7 +53,6 @@ func New(ctx context.Context, k8sClient kubernetes.Interface, policyClient polic
 	}
 
 	if policyClient != nil {
-
 		if err := engine.UpdatePolicyEngineWithK8sPolicyAPIObjects(policyClient); err != nil {
 			return nil, fmt.Errorf("load network-policy-api objects: %w", err)
 		}
@@ -65,7 +64,6 @@ func New(ctx context.Context, k8sClient kubernetes.Interface, policyClient polic
 func (a *Analyzer) Analyze(checks []prober.Check) []ConfigResult {
 	out := make([]ConfigResult, len(checks))
 	for i, c := range checks {
-
 		src, err := a.peer(c.From, "src")
 		if err != nil {
 			out[i] = ConfigResult{Err: err}

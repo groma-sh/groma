@@ -33,7 +33,7 @@ const (
 func main() {
 	var intentPath, outputPath, kubeconfig, probeImage, mode string
 	var maxConcurrent, retries int
-	var dryRun bool
+	var dryRun, showVersion bool
 	var timeout time.Duration
 	var emit emitOptions
 	flag.StringVar(&intentPath, "intent", "", "path to a SegmentationIntent YAML file")
@@ -57,7 +57,13 @@ func main() {
 		defKubeconfig = filepath.Join(h, ".kube", "config")
 	}
 	flag.StringVar(&kubeconfig, "kubeconfig", defKubeconfig, "path to kubeconfig")
+	flag.BoolVar(&showVersion, "version", false, "print the Groma version and exit")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println(version.Get())
+		return
+	}
 
 	if intentPath == "" {
 		fmt.Fprintln(os.Stderr, "error: --intent is required")
@@ -160,7 +166,6 @@ func collect(ctx context.Context, mode string, pr *prober.Prober, client kuberne
 }
 
 func buildAnalyzer(ctx context.Context, client kubernetes.Interface, cfg *rest.Config) (*analyzer.Analyzer, error) {
-
 	policyClient, err := policyapi.NewForConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -191,7 +196,7 @@ func (o emitOptions) run(ctx context.Context, report *evidence.Report, si *inten
 		return nil
 	}
 	stmt, err := attest.BuildStatement(report, si, attest.Meta{
-		GromaVersion: version.Version,
+		GromaVersion: version.Get(),
 		ClusterID:    o.clusterID,
 		CNI:          o.cni,
 	})
