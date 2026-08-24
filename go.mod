@@ -11,11 +11,11 @@ require (
 	github.com/sigstore/sigstore/pkg/signature/kms/azure v1.10.9
 	github.com/sigstore/sigstore/pkg/signature/kms/gcp v1.10.9
 	github.com/sigstore/sigstore/pkg/signature/kms/hashivault v1.10.9
-	k8s.io/api v0.36.3
-	k8s.io/apimachinery v0.36.3
-	k8s.io/client-go v0.36.3
+	k8s.io/api v0.36.4
+	k8s.io/apimachinery v0.36.4
+	k8s.io/client-go v0.36.4
 	sigs.k8s.io/controller-runtime v0.24.1
-	sigs.k8s.io/network-policy-api v0.1.5
+	sigs.k8s.io/network-policy-api v0.2.0
 	sigs.k8s.io/yaml v1.6.0
 )
 
